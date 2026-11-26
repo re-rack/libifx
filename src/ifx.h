@@ -31,6 +31,8 @@ extern "C" {
 #include "ifx_base.h"
 #include "ifx_chorus8.h"
 #include "ifx_chorus8_setup.h"
+#include "ifx_chorus_reverb.h"
+#include "ifx_chorus_reverb_setup.h"
 #include "ifx_convert.h"
 #include "ifx_delay.h"
 #include "ifx_delay_setup.h"

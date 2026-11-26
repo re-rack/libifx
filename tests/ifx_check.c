@@ -992,6 +992,7 @@ int main(int argc, char **argv) {
   int host = argc == 1;
   int all_effects = argc == 1;
   int selected_delay = 0;
+  int selected_chorus8 = 0;
   for (int arg = 1; arg < argc; arg++) {
     if (strcmp(argv[arg], "tables") == 0) {
       tables = 1;
@@ -999,6 +1000,8 @@ int main(int argc, char **argv) {
       host = 1;
     } else if (strcmp(argv[arg], "delay") == 0) {
       selected_delay = 1;
+    } else if (strcmp(argv[arg], "chorus8") == 0) {
+      selected_chorus8 = 1;
     } else {
       usage(argv[0]);
       return 2;
@@ -1012,6 +1015,9 @@ int main(int argc, char **argv) {
   }
   if (all_effects != 0 || selected_delay != 0) {
     failures += check_effect(&ifx_effect_delay);
+  }
+  if (all_effects != 0 || selected_chorus8 != 0) {
+    failures += check_effect(&ifx_effect_chorus8);
   }
   return failures == 0 ? 0 : 1;
 }

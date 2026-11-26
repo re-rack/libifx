@@ -283,6 +283,32 @@ copied from its image, pointers, state), otherwise it processes the Hush block `
   the 23 values are DELAY LVL 48, L/R DIR 46, DIRECT HUSH PRE, HUSH IN, EXP THRESH 8, REL RATE 5,
   DELAY active, MUTE TYPE PRE, LEVEL 1/2 58, PAN 1 0, PAN 2 100, TIME 1 75, TIME 2 50, REGEN 1 46,
   REGEN 2 52, D TYPE Stereo, DL HF DAMP 12, DUCKER on, SENSITIVITY 20, ATTENUATION 19, RELEASE 8.
+- **Configuration 4 parameters**: 49 values at EPROM `0x320F + 64·4`, in preset order: CHORUS LVL
+  (52), L/R DIR LVL (3/4), DIRECT HUSH (5), REGEN L/R (97/98), HUSH I/O (9), EXP THRESH (10), REL
+  RATE (11), then eight voice blocks of LEVEL, PAN, DELAY, DEPTH and RATE. The MCU windows are 59 for
+  every level, 2 for the switches, 25/10 for Hush threshold/release, 101 for pan and depth, 210 for
+  a voice delay (2 ms steps) and 255 for rate; a delay handler stores `78·(v & $FF)` samples.
+- **Configuration 4 voice handlers**: LEVEL writes `T1[v & $3F]` to `$0EC0 + 8·voice + 4` and its
+  pan pair at +6/+7; PAN writes `v & $7F` at +5 and `level·T2[v]` / `level·T2[100 − v]` at +6/+7;
+  DEPTH writes `low(2·v·$0020C5)` at +1; RATE writes it with `v & $FF` at +0; DELAY writes +3.
+  REGEN L/R write `T1[v & $3F]` to `Y:$000F`/`Y:$0010`. No configuration-4 parameter reaches the
+  message-35/44/55 handlers, so it never restarts the memory wipe.
+- **Configuration 4 init and block**: `P:$00A0` jumps to the init at `$00A2` when `X:$0000` bit 3
+  is set: it copies the 16-word filter table to `Y:$30..$3F`, the six-word table to `X:$38..$3D`,
+  the 32-entry LFO table to `Y:$1800..$181F`, the 8×4-word phase table to `Y:$1820..$183F`, sets
+  `Y:$0012..$0016` to `$200C/$2000/$2005/$4000/$8000`, `Y:$0011 = $40`, and clears `X:$40..$7F`.
+  The block at `P:$00DC` runs the regeneration limiter, reads the two 16,384-word rings at `$4000`
+  and `$8000` into the 64-word history `X:$40..$7F`, filters that sum through a 16-tap table and a
+  six-tap table into the `$2000..$3FFF` history, runs the eight LFO voices (32-entry table,
+  interpolated reads, pointer-sweep pairs in `Y:$40..$7F`), adds each voice into both rings at its
+  delay, and finally reads and clears the oldest 32 words of both rings into `$0F40..$0F7F`.
+- **Configuration 4 limiter**: `P:$00DC` sums `voice[+6]·regenL + voice[+7]·regenR` over the eight
+  voices; while the total reaches 1.0 it scales both live regen words by `$71EB85` (0.8889) and
+  stores them back. A regen turn rewrites only its own word.
+- **Configuration 4 defaults**: factory preset 88 (`SWEEP CHORUS`) at EPROM `0x2084 + 55·7`; the
+  49 values are CHORUS LVL 44, L/R DIR 42, DIRECT HUSH PRE, REGEN L/R 0/3, HUSH IN, EXP THRESH 8,
+  REL RATE 5, then voices 1–8: level 58/58/58/58/58/58/46/34, pan 0/0/0/0/100/100/100/100,
+  delay 5/20/30/60/30/120/140/160, depth 41/41/36/39/40/43/37/32 and rate 25/21/5/73/38/42/10/35.
 
 ## Sample rate
 
@@ -299,5 +325,5 @@ CLKIN.
   next to Q1.23 constants elsewhere.
 - Modulo addressing with `N = $2000` on `M = $1FFF` (configurations 4 and 5): the DSP56000's
   multiple wrap-around rule must hold in the harness.
-- Configuration 4's LFO rate scaling and pointer sweep, configuration 5's grain window source
-  (`Y:$1C80`) and net pitch factor, the reverb network's topology.
+- Configuration 5's grain window source (`Y:$1C80`) and net pitch factor, the reverb network's
+  topology.

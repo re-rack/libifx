@@ -137,6 +137,7 @@ static int delay_frame(void *instance, int32_t in, int32_t *left, int32_t *right
 
 static const ifx_firmware_ops k_delay_ops = {
     .effect = &ifx_effect_delay,
+    .config = 3,
     .open = delay_open,
     .close = delay_close,
     .set_knob = delay_set_knob,

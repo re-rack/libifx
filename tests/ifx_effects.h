@@ -4,6 +4,6 @@
 #ifndef IFX_EFFECTS_H
 #define IFX_EFFECTS_H
 
-#define IFX_EFFECTS(X) X(delay)
+#define IFX_EFFECTS(X) X(delay) X(chorus8)
 
 #endif /* IFX_EFFECTS_H */

@@ -206,12 +206,15 @@ a product or a flag:
 | `P:$0932` | 181 | `2^(k/60 − 4)`: pitch in 20-cent steps |
 | `P:$09E7` | 41 | `0.5·2^((k − 20)/1200)`: fine pitch in cents |
 
-Selected handlers: 2–4 effect, L and R direct level (`X:$0013..$0015` from T1); 5 direct on (bit
-6); 9 Hush in (bit 4); 10 threshold and slope; 11 release; voice handlers write the voice block
+Selected handlers: 2–4 effect, L and R direct level (`X:$0013..$0015` from T1); 5 DIRECT HUSH
+(bit 6: POST mixes the Hush block in as the direct signal, PRE leaves the direct path analog); 9
+Hush in (bit 4); 10 threshold and slope; 11 release; voice handlers write the voice block
 `$0EC0 + 8·v`: +0 rate `(v & $FF)·$0020C5` or coarse pitch (T `$0932`), +1 depth
 `(v & $7F)·$0020C5` or fine pitch (T `$09E7`), +2 their product, +3 delay `78·(v & $FF)` samples,
 +4 level (T1), +5 pan 0–100, +6 and +7 level·T2 for left and right; 97/98 Regen L/R
-(`Y:$000F`/`Y:$0010` from T1); 59 gate on (bit 9). The full table is in `dsp_shared.asm`
+(`Y:$000F`/`Y:$0010` from T1); 42 REVERB DECAY `Y:$0000 = $4CCCCD + (v & $7F)·$004189` and 43
+RV HF DAMP `Y:$0001 = (v & $7F)·$004189` (low words of the products), each then restaging
+`Y:$0002 = Y:$0000·(1 − Y:$0001)`; 59 gate on (bit 9). The full table is in `dsp_shared.asm`
 (`P:$053D..$07BD`).
 
 ## Configurations

@@ -24,7 +24,7 @@ RE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = RE_ROOT.parent
 INPUT_DIRS = (PROJECT_ROOT, RE_ROOT / "inputs")
 DEFAULT_OUTPUT = RE_ROOT
-DEFAULT_DISASSEMBLER = "dsp56300-disasm"
+DEFAULT_DISASSEMBLER = "build/tools/ifx_dsp_disasm"
 DISASSEMBLER_TIMEOUT = 600
 
 EPROM_SIZE = 0x8000
@@ -510,9 +510,8 @@ def resolve_disassembler(value: str) -> str:
     found = shutil.which(value)
     if found is None:
         raise SystemExit(
-            f"disassembler {value!r} not on PATH: install dsp56300-disasm from "
-            "https://github.com/xemu-project/dsp56300 or pass --disassembler "
-            "(DISASSEMBLER= for make)"
+            f"disassembler {value!r} not on PATH: run make tools first, or pass "
+            "--disassembler (DISASSEMBLER= for make)"
         )
     return found
 

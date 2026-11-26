@@ -22,5 +22,6 @@ const ifx_firmware_ops *ifx_firmware_chorus8(void);
 const ifx_firmware_ops *ifx_firmware_pitch(void);
 const ifx_firmware_ops *ifx_firmware_reverb(void);
 const ifx_firmware_ops *ifx_firmware_chorus_reverb(void);
+const ifx_firmware_ops *ifx_firmware_pitch_reverb(void);
 
 #endif /* IFX_FIRMWARE_H */

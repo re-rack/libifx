@@ -13,9 +13,13 @@ static const ifx_pitch_core_layout k_layout = {
     .filter2_m = 0x1FFF,
     .dual_filter = 1,
     .grain_phase = 0x1000,
+    .window_base = 0x1800,
     .line_l = 0x8000,
     .line_r = 0xC000,
     .line_m = 0x3FFF,
+    .delay_voice = 0,
+    .voice_bus = 0,
+    .final_line_read = 1,
 };
 
 static void pitch_block(ifx_pitch_state *state, const ifx_pitch_config *config,
@@ -29,10 +33,10 @@ static void pitch_block(ifx_pitch_state *state, const ifx_pitch_config *config,
       &state->hush, front, hush, level, config->coef[IFX_PITCH_COEF_HUSH_THRESHOLD],
       config->coef[IFX_PITCH_COEF_HUSH_SLOPE], config->coef[IFX_PITCH_COEF_HUSH_RELEASE],
       (config->coef[IFX_PITCH_COEF_FLAGS] & IFX_MIXER_FLAG_HUSH) != 0);
-  ifx_pitch_core_process(&state->pitch, &k_layout, &config->coef[IFX_PITCH_COEF_VOICES],
-                         config->coef[IFX_PITCH_COEF_REG_LEFT],
-                         config->coef[IFX_PITCH_COEF_REG_RIGHT], hush, state->wet_left,
-                         state->wet_right);
+  ifx_pitch_core_process(
+      &state->pitch, &k_layout, state->memory, &config->coef[IFX_PITCH_COEF_VOICES],
+      config->coef[IFX_PITCH_COEF_REG_LEFT], config->coef[IFX_PITCH_COEF_REG_RIGHT], hush,
+      state->wet_left, state->wet_right);
 
   int32_t mixed_l[IFX_BLOCK_FRAMES];
   int32_t mixed_r[IFX_BLOCK_FRAMES];
@@ -47,13 +51,17 @@ static void pitch_block(ifx_pitch_state *state, const ifx_pitch_config *config,
 }
 
 void ifx_pitch_state_init(ifx_pitch_state *state, const ifx_pitch_config *config) {
+  for (unsigned i = 0; i < 0x10000u; i++) {
+    state->memory[i] = 0;
+  }
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
     state->wet_left[i] = 0;
     state->wet_right[i] = 0;
   }
   ifx_front_core_state_init(&state->front);
   ifx_hush_core_state_init(&state->hush);
-  ifx_pitch_core_state_init(&state->pitch, &k_layout, config->coef[IFX_PITCH_COEF_REG_LEFT],
+  ifx_pitch_core_state_init(&state->pitch, &k_layout, state->memory,
+                            config->coef[IFX_PITCH_COEF_REG_LEFT],
                             config->coef[IFX_PITCH_COEF_REG_RIGHT]);
   ifx_process_block_init(&state->block);
 }

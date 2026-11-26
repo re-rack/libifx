@@ -8,11 +8,11 @@ has not settled; the harness settles it.
 
 ## Current status
 
-Configurations 0, 2, 3, 4 and 5 (`ifx_chorus_reverb`, `ifx_reverb`, `ifx_delay`, `ifx_chorus8`,
-`ifx_pitch`) are implemented with fixtures. The workspace splits and disassembles the EPROM and
-builds the Ghidra project, and the harness runs the original firmware on both CPUs. The MCU's
-parameter model, the MCU–DSP protocol, the DSP's shared code and the structure of every
-configuration are mapped; configuration 1's kernel is still to be settled in the harness.
+All six configurations are implemented with fixtures (`ifx_reverb`, `ifx_delay`, `ifx_chorus8`,
+`ifx_pitch`, `ifx_chorus_reverb`, `ifx_pitch_reverb`). The workspace splits and disassembles the
+EPROM and builds the Ghidra project, and the harness runs the original firmware on both CPUs. The
+MCU's parameter model, the MCU–DSP protocol, the DSP's shared code and the structure of every
+configuration are mapped.
 
 ## Hardware
 
@@ -370,9 +370,33 @@ copied from its image, pointers, state), otherwise it processes the Hush block `
   PSHIFT LVL 46, L/R DIR 46/46, DIRECT HUSH PRE, REGEN L/R 0/0, HUSH in, EXP THRESH 8, REL RATE 5,
   voice 1 pitch/fine/level/pan/delay 85/20/58/25/0, voice 2 145/20/58/75/0, voice 3 105/20/58/25/0,
   voice 4 145/36/58/75/0.
-- **Configuration 1 pitch core**: the same voice handlers and grain sweep with a 12-bit phase and a
-  rate shift of 4, one 16-tap filter into the 4,096-word `Y:$2000` ring (no 6-tap stage), grain
-  scratch `Y:$1180`/`Y:$11A0`, voice state `Y:$11C0`, window `Y:$1000`, and lines `$4000`/`$8000`.
+- **Configuration 1 parameters**: 34 values at EPROM `0x320F + 64`, in preset order: EFFECTS LVL
+  (2), L/R DIR LVL (3/4), DIRECT HUSH (5), PITCH LVL (45), DELAY LVL (7), REVERB LVL (8), REGEN L/R
+  (97/98), HUSH I/O (9), EXP THRESH (10), REL RATE (11), then voice 1 (PITCH 46, FINE 47, LEVEL 63,
+  PAN 15, DELAY 64), voice 2 (48/49/65/20/66), Delay 3 (LEVEL 67, PAN 68, DELAY 69), DUCKER (16),
+  SENSITIVITY (36), ATTENUATION (37), RELEASE RATE (38), REV INPUT (107), DIR IN PAN (56), MIX
+  DIR/DLY (39), REV DECAY (42) and RV HF DAMP (43).
+- **Configuration 1 default**: factory preset 86 at EPROM `0x2084 + 55·5`; the 34 values are
+  EFFECTS LVL 46, L/R DIR 46/46, DIRECT HUSH PRE, PITCH LVL 58, DELAY LVL 58, REVERB LVL 48,
+  REGEN L/R 0/0, HUSH in, EXP THRESH 8, REL RATE 5, voice 1 pitch/fine/level/pan/delay
+  60/20/54/22/1, voice 2 120/36/54/84/1, Delay 3 level/pan/delay 31/81/160, DUCKER off,
+  SENSITIVITY 0, ATTENUATION 58, RELEASE RATE 0, REV INPUT Active, DIR IN PAN 50, MIX DIR/DLY 50,
+  REV DECAY 66, RV HF DAMP 18.
+- **Configuration 1 init and block** (`cfg1 P:$023C`): init sets `Y:$0013 = $1100` (unused),
+  `Y:$0012 = $2000`, `Y:$0015 = $4000`, `Y:$0016 = $8000`, `Y:$0011 = $40`, copies the 16-word
+  16-tap table `P:$02A3..$02B2` to `Y:$30..$3F`, the 14-word voice-state table `P:$02B3..$02C0`
+  to `Y:$11C0..$11CD`, clears `X:$40..$7F`, builds the crossfade window `Y:$1000..$10FF`, and
+  copies the 28-word reverb table `P:$0286..$02A1` to `X:$1220..$123B`. The block runs the
+  regeneration limiter over three voice blocks (two pitch voices and Delay 3), sums the Hush block
+  and regenerated line outputs into `X:$40..$7F`, filters through the 16-tap table into the
+  4,096-word `Y:$2000` ring (`M=$0FFF`), then runs two pitch voices with a 12-bit phase, rate
+  shift 4 and grains at `Y:$1180`/`Y:$11A0`; the Delay 3 block adds the current history block to
+  both lines at its delay. The ducker, the reverb network and the output mix follow; `$021C` sums
+  the zero-delay pitch bus `Y:$11E0`/`Y:$1200`, the delay lines and reverb into `Y:$0F40`.
+- **Configuration 1 reverb and ducker**: the network is configuration 0's 28-word table and opcode
+  run at `X:$1220`; the ducker is configuration 0's `macr` version (`cfg1 P:$01CD..$01DE`).
+- **Configuration 1 wipe**: none. Its parameter list has no message 35, 44 or 55 parameter, so no
+  knob restarts the memory wipe.
 - **Configuration 2 parameters** at `0x328F`: REVERB LVL 50, L/R DIR 3/4, DIRECT HUSH 5, HUSH I/O
   9, EXP THRESH 10, REL RATE 11, REVERB DECAY 42, RV HF DAMP 43, LOW FREQ 54, REV TYPE 55, DIRIN PAN
   56, PREDELAY L/R 57/58, GATE 59, GATE DECAY 60, GATE THRESH 61, HOLD TIME 62. Windows: decay and

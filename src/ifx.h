@@ -37,6 +37,8 @@ extern "C" {
 #include "ifx_delay.h"
 #include "ifx_delay_setup.h"
 #include "ifx_pitch.h"
+#include "ifx_pitch_reverb.h"
+#include "ifx_pitch_reverb_setup.h"
 #include "ifx_pitch_setup.h"
 #include "ifx_reverb.h"
 #include "ifx_reverb_setup.h"

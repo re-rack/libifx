@@ -37,6 +37,7 @@ typedef struct {
 } ifx_pitch_config;
 
 typedef struct {
+  int32_t memory[0x10000]; /* the DSP's one external array, addressed as Y: */
   ifx_front_core_state front;
   ifx_hush_core_state hush;
   ifx_pitch_core_state pitch;

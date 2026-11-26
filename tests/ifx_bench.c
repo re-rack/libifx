@@ -81,6 +81,9 @@ static const ifx_effect *find_effect(const char *name) {
   if (strcmp(name, ifx_effect_chorus_reverb.name) == 0) {
     return &ifx_effect_chorus_reverb;
   }
+  if (strcmp(name, ifx_effect_pitch_reverb.name) == 0) {
+    return &ifx_effect_pitch_reverb;
+  }
   return NULL;
 }
 
@@ -93,6 +96,7 @@ int main(int argc, char **argv) {
     effects[count++] = &ifx_effect_pitch;
     effects[count++] = &ifx_effect_reverb;
     effects[count++] = &ifx_effect_chorus_reverb;
+    effects[count++] = &ifx_effect_pitch_reverb;
   } else {
     for (int arg = 1; arg < argc; arg++) {
       const ifx_effect *effect = find_effect(argv[arg]);

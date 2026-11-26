@@ -53,7 +53,7 @@ An effect is **Complete** when it has a native setup path, an audio kernel, all 
 | Hush; 8 Voice Chorus; Delay (30–31) | `ifx_chorus8` | Mixer, Hush, 8 chorus/delay voices | Complete |
 | Hush; Pitch Shift; Delay (32–33) | `ifx_pitch` | Mixer, Hush, 4 pitch voices with delay | Complete |
 | Hush; Chorus; Delay; Reverb (23–24) | `ifx_chorus_reverb` | Mixer, Hush, 4 chorus/delay voices, Ducker, Reverb | Complete |
-| Hush; Pitch Shift; Delay; Reverb (34–35) | `ifx_pitch_reverb` | Mixer, Hush, 2 pitch voices, Delay 3, Ducker, Reverb | Not started |
+| Hush; Pitch Shift; Delay; Reverb (34–35) | `ifx_pitch_reverb` | Mixer, Hush, 2 pitch voices, Delay 3, Ducker, Reverb | Complete |
 
 Work order: workspace and docs (done), firmware map (structure done; the arithmetic is settled in the harness), two-CPU harness (done), library foundation (done), then the configurations simplest first, with Hush and the Mixer as the first shared pieces. No de-popped variants: each effect clicks where the device does.
 

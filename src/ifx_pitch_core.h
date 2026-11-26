@@ -1,7 +1,8 @@
 /* The pitch network configurations 5 and 1 run: the regeneration limiter over
  * the voice pan gains, the input sum, the 16-tap filter, configuration 5's
- * 6-tap filter, the two-grain voices and the L/R delay lines. Hush, the front
- * and the mixer are shared.
+ * 6-tap filter, the two-grain voices and the L/R delay lines. Configuration 1
+ * adds its Delay 3 voice from the filter history. Hush, the front and the
+ * mixer are shared.
  */
 #ifndef IFX_PITCH_CORE_H
 #define IFX_PITCH_CORE_H
@@ -11,8 +12,8 @@
 #define IFX_PITCH_MAX_VOICES 4u
 
 /* The addresses and ring sizes the pitch kernel works in. Configuration 5 uses
- * both filters; configuration 1 runs the 16-tap filter straight into the
- * larger ring. */
+ * both filters and a 13-bit phase; configuration 1 runs the 16-tap filter
+ * straight into a 4,096-word ring, a 12-bit phase and one Delay 3 voice. */
 typedef struct {
   unsigned voices;
   unsigned phase_bits; /* phase word width: 12 for configuration 1, 13 for 5 */
@@ -23,17 +24,20 @@ typedef struct {
   unsigned filter2_m;    /* $1FFF / $0FFF */
   unsigned dual_filter;  /* configuration 5 runs the 6-tap filter */
   unsigned grain_phase;  /* the phase table's initial integer word */
+  unsigned window_base;  /* Y:$1800 or Y:$1000 */
   unsigned line_l;
   unsigned line_r;
   unsigned line_m;
+  unsigned delay_voice; /* configuration 1's Delay 3 block after the voices */
+  unsigned voice_bus;   /* configuration 1's zero-delay voice bus; 0 = none */
+  unsigned final_line_read; /* read and clear the oldest line block */
 } ifx_pitch_core_layout;
 
 typedef struct {
-  int32_t memory[0x10000]; /* the DSP's one external array, addressed as Y: */
   int32_t history[64];     /* X:$40..$7F */
-  int32_t window[256];     /* Y:$1800..$18FF or Y:$1000..$10FF */
   int32_t grain[2][32];    /* Y:$1C80/$1CA0 or Y:$1180/$11A0 */
-  int32_t voice[IFX_PITCH_MAX_VOICES][7]; /* Y:$1CC0: two phase pairs, rings, window */
+  int32_t voice[IFX_PITCH_MAX_VOICES][7]; /* Y:$1CC0 or Y:$11C0 */
+  int32_t voice_bus[64];   /* Y:$11E0/$1200 */
   uint32_t history_write; /* Y:$0011 */
   uint32_t filter1_write; /* Y:$0013 */
   uint32_t filter2_write; /* Y:$0012 */
@@ -46,12 +50,14 @@ typedef struct {
 } ifx_pitch_core_state;
 
 void ifx_pitch_core_state_init(ifx_pitch_core_state *state, const ifx_pitch_core_layout *layout,
-                               int32_t regen_l, int32_t regen_r);
+                               int32_t memory[0x10000], int32_t regen_l, int32_t regen_r);
 
-/* One block: `voices` is layout->voices blocks of eight words at $0EC0 + 8*v;
- * the regen words are the handlers' staged values. */
+/* One block: `voices` is the pitch voices plus, for configuration 1, the Delay
+ * 3 block, each eight words at $0EC0 + 8*v; the regen words are the handlers'
+ * staged values. */
 void ifx_pitch_core_process(ifx_pitch_core_state *state, const ifx_pitch_core_layout *layout,
-                            const int32_t *voices, int32_t regen_l, int32_t regen_r,
-                            const int32_t input[32], int32_t out_l[32], int32_t out_r[32]);
+                            int32_t memory[0x10000], const int32_t *voices, int32_t regen_l,
+                            int32_t regen_r, const int32_t input[32], int32_t out_l[32],
+                            int32_t out_r[32]);
 
 #endif /* IFX_PITCH_CORE_H */

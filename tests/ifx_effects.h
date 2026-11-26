@@ -4,6 +4,6 @@
 #ifndef IFX_EFFECTS_H
 #define IFX_EFFECTS_H
 
-#define IFX_EFFECTS(X) X(delay) X(chorus8) X(pitch) X(reverb) X(chorus_reverb)
+#define IFX_EFFECTS(X) X(delay) X(chorus8) X(pitch) X(reverb) X(chorus_reverb) X(pitch_reverb)
 
 #endif /* IFX_EFFECTS_H */

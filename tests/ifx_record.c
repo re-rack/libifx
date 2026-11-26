@@ -428,6 +428,7 @@ int main(int argc, char **argv) {
     puts("delay");
     puts("chorus8");
     puts("reverb");
+    puts("chorus_reverb");
     puts("tables");
     return 0;
   }
@@ -469,7 +470,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   const ifx_firmware_ops *firmware_ops[] = {ifx_firmware_delay(), ifx_firmware_chorus8(),
-                                            ifx_firmware_reverb()};
+                                            ifx_firmware_reverb(), ifx_firmware_chorus_reverb()};
   for (unsigned i = 0; i < sizeof firmware_ops / sizeof firmware_ops[0]; i++) {
     if (strcmp(argv[1], firmware_ops[i]->effect->name) == 0) {
       return record_effect(firmware_ops[i], argv[2]) == 0 ? 0 : 1;

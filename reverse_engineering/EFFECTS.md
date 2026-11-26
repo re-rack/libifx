@@ -8,11 +8,11 @@ has not settled; the harness settles it.
 
 ## Current status
 
-Configuration 3 (`ifx_delay`, Hush; Delay; Ducker) is implemented with its fixture. The workspace
-splits and disassembles the EPROM and builds the Ghidra project, and the harness runs the original
-firmware on both CPUs. The MCU's parameter model, the MCU–DSP protocol, the DSP's shared code and
-the structure of every configuration are mapped; the other five configurations' kernels are still
-to be settled in the harness.
+Configurations 3 (`ifx_delay`), 4 (`ifx_chorus8`), 2 (`ifx_reverb`) and 0 (`ifx_chorus_reverb`) are
+implemented with fixtures. The workspace splits and disassembles the EPROM and builds the Ghidra
+project, and the harness runs the original firmware on both CPUs. The MCU's parameter model, the
+MCU–DSP protocol, the DSP's shared code and the structure of every configuration are mapped; the
+remaining two configurations' kernels are still to be settled in the harness.
 
 ## Hardware
 
@@ -238,7 +238,7 @@ copied from its image, pointers, state), otherwise it processes the Hush block `
 
 | Configuration | Structure | Delay memory |
 |---|---|---|
-| 0 Chorus/Delay/Reverb | regen limiter, regen sum, 16-tap lowpass, 4 voices (32-entry LFO table, interpolated reads), L/R delay lines, ducker, reverb network (14 pointer/coefficient pairs), mixer | L/R `$4000`, `$8000` (16,320 words); reverb `$C000`; history `$2000` |
+| 0 Chorus/Delay/Reverb | regen limiter, regen sum, 16-tap lowpass, 4 voices (32-entry LFO table, interpolated reads), L/R delay lines, ducker, reverb network (14 pointer/coefficient pairs), mixer | L/R `$4000`, `$8000` (16,384 words); reverb `$C000` (16,320); history `$2000` |
 | 1 Pitch/Delay/Reverb | configuration 0's frame and reverb with 2 pitch voices and Delay 3 | as configuration 0 |
 | 2 Reverb | per-type 48-word state tables (8 types), predelay `39·v` samples, gate | `$7FBB..$FF76` (32,763 words) |
 | 3 Delay/Ducker | regen gains `Y:$0024`/`$0025`, two 29,632-word lines, ducker | `$73BF` modulo windows |
@@ -309,6 +309,38 @@ copied from its image, pointers, state), otherwise it processes the Hush block `
   49 values are CHORUS LVL 44, L/R DIR 42, DIRECT HUSH PRE, REGEN L/R 0/3, HUSH IN, EXP THRESH 8,
   REL RATE 5, then voices 1–8: level 58/58/58/58/58/58/46/34, pan 0/0/0/0/100/100/100/100,
   delay 5/20/30/60/30/120/140/160, depth 41/41/36/39/40/43/37/32 and rate 25/21/5/73/38/42/10/35.
+- **Configuration 0 parameters**: 41 values at EPROM `0x320F`, factory preset 81 at `0x2084`; the
+  defaults are EFFECTS LVL 46, L/R DIR 46, DIRECT HUSH PRE, CHORUS LVL 58, DELAY LVL 32, REVERB LVL
+  58, REGEN L/R 0/41, HUSH IN, EXP THRESH 8, REL RATE 5, voices 1–4 level 58, pan 0/100/0/100,
+  delay 0/0/88/176, depth 36/40/0/0, rate 12/30/0/0, DUCKER off, SENSITIVITY 0, ATTENUATION 58,
+  RELEASE 0, REV INPUT Active, DIR IN PAN 30, MIX DIR/DLY 10, REV DECAY 71, RV HF DAMP 18.
+- **Configuration 0 init and block** (`cfg0 P:$021E`): sets `Y:$0012 = $2000`, `Y:$0015 = $4000`,
+  `Y:$0016 = $8000`, `Y:$0011 = $40`, copies the 16-tap table `P:$0276..$0285` to `Y:$30..$3F`,
+  the 32-entry LFO table `P:$0286..$02A5` to `Y:$1000..$101F`, the four 4-word phase entries
+  `P:$02A6..$02B5` to `Y:$1020..$102F`, clears `X:$40..$7F`, and copies the 28-word reverb table
+  `P:$0259..$0274` to `X:$1080..$109B`. The block sums each voice's pan gain times the live regen
+  word over four voices, then the Hush block plus the delay-line returns into `X:$40..$5F`, runs the
+  16-tap filter into `Y:$2000` with adjacent word pairs (`M=$0FFF`), then four voices: phase step
+  `$0800`, the `P:$0158` clamp on `Y:$0012` with window `$0100`, LFO table `Y:$1000`, sweep mask
+  `$0FFF`, the depth product shifted one extra ASR. A voice with delay zero is added to the chorus
+  buses `Y:$1040`/`Y:$1060`; a voice with a delay is added at `read + delay` in the `$4000`/`$8000`
+  lines (`M=$3FFF`). The ducker, the reverb network and the output mix follow; `$0119` sums chorus
+  bus, delay-line tap and reverb into `Y:$0F40`, clearing the bus and the line words it reads.
+- **Configuration 0 reverb network** (configurations 0 and 1 share it): the 28-word table is 12
+  pointer pairs (four stages, three 2-word allpass lines each) and two input pointer/coefficient
+  pairs `$CA7E/$7D70A4` and `$C5BB/$71EB85`; its memory window is base `$C000`, `M=$3FBF` (16,320
+  words). `P:$00DD` mixes the Hush block through `Y:$0008/$0009` and the delay returns through
+  `X:$0025/$0026`, the delay-return gain scaled by the ducker when its mode bit 0 is set, and the
+  whole feed gated by `X:$0000` bit 17 (REV INPUT). Two 2-word allpass lines run first; four stages
+  then alternate left/right, each a three-tap sum at `$555555` followed by three damped allpass
+  lines using `Y:$0001` (RV HF DAMP) and `Y:$000B` (the `Y:$0002` feedback copied each block).
+- **Configuration 0 ducker**: `P:$01AF..$01C0` matches configuration 3 except the last term is a
+  `macr`. No configuration's init writes `Y:$0029`: the gain carries over from whatever ran before.
+  Released from below, it stops at the lowest word the rounding holds still (`$7FFFCA` for RELEASE
+  RATE 0 with `macr`, `$7FFF95` with configuration 3's `mac`); any word between that and `$7FFFFF`
+  also holds, so the resting gain depends on history.
+- **Configuration 0 wipe**: none. Its parameter list has no message 35, 44 or 55 parameter, so no
+  knob restarts the memory wipe.
 - **Configuration 2 parameters** at `0x328F`: REVERB LVL 50, L/R DIR 3/4, DIRECT HUSH 5, HUSH I/O
   9, EXP THRESH 10, REL RATE 11, REVERB DECAY 42, RV HF DAMP 43, LOW FREQ 54, REV TYPE 55, DIRIN PAN
   56, PREDELAY L/R 57/58, GATE 59, GATE DECAY 60, GATE THRESH 61, HOLD TIME 62. Windows: decay and
@@ -356,5 +388,4 @@ CLKIN.
   next to Q1.23 constants elsewhere.
 - Modulo addressing with `N = $2000` on `M = $1FFF` (configurations 4 and 5): the DSP56000's
   multiple wrap-around rule must hold in the harness.
-- Configuration 5's grain window source (`Y:$1C80`) and net pitch factor, the reverb network of
-  configurations 0 and 1.
+- Configuration 5's grain window source (`Y:$1C80`) and net pitch factor.

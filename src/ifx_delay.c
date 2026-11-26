@@ -198,7 +198,7 @@ static void delay_block(ifx_delay_state *state, const ifx_delay_config *config,
     }
     ifx_ducker_core_process(&state->ducker, level, config->coef[IFX_DELAY_COEF_DUCK_THRESHOLD],
                             config->coef[IFX_DELAY_COEF_DUCK_ATTEN],
-                            config->coef[IFX_DELAY_COEF_DUCK_RELEASE]);
+                            config->coef[IFX_DELAY_COEF_DUCK_RELEASE], 0);
     if ((state->delay_flags & IFX_DELAY_TYPE_2TAP) != 0) {
       ifx_regen_core_limit(&state->regen1, &state->regen2);
     }
@@ -227,7 +227,7 @@ void ifx_delay_state_init(ifx_delay_state *state, const ifx_delay_config *config
   }
   ifx_front_core_state_init(&state->front);
   ifx_hush_core_state_init(&state->hush);
-  ifx_ducker_core_state_init(&state->ducker);
+  ifx_ducker_core_state_init(&state->ducker, config->coef[IFX_DELAY_COEF_DUCK_RELEASE], 0);
   state->write1 = 0;
   state->write2 = 0;
   state->damp1 = 0;

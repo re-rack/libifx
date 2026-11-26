@@ -1,0 +1,113 @@
+#include "ifx_chorus_reverb.h"
+#include "ifx_chorus_reverb_setup.h"
+#include "ifx_effect.h"
+
+#define CHORUS_REVERB_KNOBS 41u
+#define CHORUS_REVERB_SETUP_WORDS IFX_CHORUS_REVERB_COEF_COUNT
+
+static const ifx_effect_knob k_knobs[CHORUS_REVERB_KNOBS] = {
+    {"EFFECTS LVL", 0, 58, 46, 0, 58, 0},
+    {"L DIR LVL", 0, 58, 46, 0, 30, 0},
+    {"R DIR LVL", 0, 58, 46, 0, 30, 0},
+    {"DIRECT HUSH", 0, 1, 0, 0, 1, 0},
+    {"CHORUS LVL", 0, 58, 58, 0, 58, 0},
+    {"DELAY LVL", 0, 58, 32, 0, 58, 0},
+    {"REVERB LVL", 0, 58, 58, 0, 58, 0},
+    {"REGEN L", 0, 58, 0, 0, 58, 0},
+    {"REGEN R", 0, 58, 41, 0, 58, 0},
+    {"HUSH I/O", 0, 1, 1, 0, 1, 0},
+    {"EXP THRESH", 0, 24, 8, 0, 20, 0},
+    {"REL RATE", 0, 9, 5, 0, 5, 0},
+    {"LEVEL 1", 0, 58, 58, 0, 58, 0},
+    {"PAN 1", 0, 100, 0, 0, 50, 0},
+    {"DELAY 1", 0, 209, 0, IFX_EFFECT_HOLD, 4, 0},
+    {"DEPTH 1", 0, 100, 36, 0, 60, 0},
+    {"RATE 1", 0, 254, 12, 0, 20, 0},
+    {"LEVEL 2", 0, 58, 58, 0, 58, 0},
+    {"PAN 2", 0, 100, 100, 0, 50, 0},
+    {"DELAY 2", 0, 209, 0, IFX_EFFECT_HOLD, 8, 0},
+    {"DEPTH 2", 0, 100, 40, 0, 65, 0},
+    {"RATE 2", 0, 254, 30, 0, 30, 0},
+    {"LEVEL 3", 0, 58, 58, 0, 58, 0},
+    {"PAN 3", 0, 100, 0, 0, 50, 0},
+    {"DELAY 3", 0, 209, 88, IFX_EFFECT_HOLD, 16, 0},
+    {"DEPTH 3", 0, 100, 0, 0, 70, 0},
+    {"RATE 3", 0, 254, 0, 0, 40, 0},
+    {"LEVEL 4", 0, 58, 58, 0, 58, 0},
+    {"PAN 4", 0, 100, 100, 0, 50, 0},
+    {"DELAY 4", 0, 209, 176, IFX_EFFECT_HOLD, 32, 0},
+    {"DEPTH 4", 0, 100, 0, 0, 75, 0},
+    {"RATE 4", 0, 254, 0, 0, 50, 0},
+    {"DUCKER", 0, 3, 0, 0, 3, 1},
+    {"SENSITIVITY", 0, 24, 0, 0, 16, 0},
+    {"ATTENUATION", 0, 58, 58, 0, 30, 0},
+    {"RELEASE RATE", 0, 19, 0, 0, 8, 0},
+    {"REV INPUT", 0, 1, 1, 0, 1, 0},
+    {"DIR IN PAN", 0, 100, 30, 0, 50, 0},
+    {"MIX DIR/DLY", 0, 100, 10, 0, 50, 0},
+    {"REV DECAY", 0, 99, 71, 0, 99, 0},
+    {"RV HF DAMP", 0, 99, 18, 0, 20, 0},
+};
+
+static void chorus_reverb_raw(const int32_t *values, ifx_chorus_reverb_setup_raw *raw) {
+  *raw = (ifx_chorus_reverb_setup_raw){
+      .effects_level = (int)values[0],
+      .direct_left = (int)values[1],
+      .direct_right = (int)values[2],
+      .direct_hush = (int)values[3],
+      .chorus_level = (int)values[4],
+      .delay_level = (int)values[5],
+      .reverb_level = (int)values[6],
+      .regen_left = (int)values[7],
+      .regen_right = (int)values[8],
+      .hush = (int)values[9],
+      .hush_threshold = (int)values[10],
+      .hush_release = (int)values[11],
+      .level1 = (int)values[12],
+      .pan1 = (int)values[13],
+      .delay1 = (int)values[14],
+      .depth1 = (int)values[15],
+      .rate1 = (int)values[16],
+      .level2 = (int)values[17],
+      .pan2 = (int)values[18],
+      .delay2 = (int)values[19],
+      .depth2 = (int)values[20],
+      .rate2 = (int)values[21],
+      .level3 = (int)values[22],
+      .pan3 = (int)values[23],
+      .delay3 = (int)values[24],
+      .depth3 = (int)values[25],
+      .rate3 = (int)values[26],
+      .level4 = (int)values[27],
+      .pan4 = (int)values[28],
+      .delay4 = (int)values[29],
+      .depth4 = (int)values[30],
+      .rate4 = (int)values[31],
+      .ducker = (int)values[32],
+      .ducker_sensitivity = (int)values[33],
+      .ducker_attenuation = (int)values[34],
+      .ducker_release = (int)values[35],
+      .rev_input = (int)values[36],
+      .dir_in_pan = (int)values[37],
+      .mix_dir_dly = (int)values[38],
+      .reverb_decay = (int)values[39],
+      .hf_damp = (int)values[40],
+  };
+}
+
+static void chorus_reverb_words(const ifx_chorus_reverb_config *config, int32_t *words) {
+  for (unsigned word = 0; word < IFX_CHORUS_REVERB_COEF_COUNT; word++) {
+    words[word] = config->coef[word];
+  }
+}
+
+/* The phase re-sync needs a slow sweep into the filter pointer's window, and
+ * the reverb input and Hush paths need their off states. */
+static const ifx_effect_extra k_extra[] = {
+    {14, 1, 64},    {19, 1, 64},   {24, 1, 64},   {29, 1, 64},  {16, 0, 64},  {21, 0, 64},
+    {26, 0, 64},    {31, 0, 64},   {15, 80, 64},  {20, 80, 64}, {25, 80, 64}, {30, 80, 64},
+    {16, 0, 65536}, {36, 0, 2048}, {36, 1, 2048}, {9, 0, 2048}, {9, 1, 2048},
+};
+
+IFX_EFFECT_DEFINE(chorus_reverb, chorus_reverb, k_knobs, chorus_reverb_raw, chorus_reverb_words,
+                  CHORUS_REVERB_SETUP_WORDS, k_extra, sizeof k_extra / sizeof k_extra[0])

@@ -36,6 +36,7 @@ typedef struct {
 } ifx_chorus8_config;
 
 typedef struct {
+  int32_t memory[0x10000]; /* the DSP's one external array, addressed as Y: */
   ifx_front_core_state front;
   ifx_hush_core_state hush;
   ifx_chorus_core_state chorus;

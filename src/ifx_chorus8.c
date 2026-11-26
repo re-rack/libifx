@@ -15,7 +15,7 @@ static void chorus8_block(ifx_chorus8_state *state, const ifx_chorus8_config *co
       &state->hush, front, hush, level, config->coef[IFX_CHORUS8_COEF_HUSH_THRESHOLD],
       config->coef[IFX_CHORUS8_COEF_HUSH_SLOPE], config->coef[IFX_CHORUS8_COEF_HUSH_RELEASE],
       (config->coef[IFX_CHORUS8_COEF_FLAGS] & IFX_MIXER_FLAG_HUSH) != 0);
-  ifx_chorus_core_process(&state->chorus, &config->coef[IFX_CHORUS8_COEF_VOICES],
+  ifx_chorus_core_process(&state->chorus, state->memory, &config->coef[IFX_CHORUS8_COEF_VOICES],
                           config->coef[IFX_CHORUS8_COEF_REG_LEFT],
                           config->coef[IFX_CHORUS8_COEF_REG_RIGHT], hush, state->wet_left,
                           state->wet_right);
@@ -34,13 +34,17 @@ static void chorus8_block(ifx_chorus8_state *state, const ifx_chorus8_config *co
 }
 
 void ifx_chorus8_state_init(ifx_chorus8_state *state, const ifx_chorus8_config *config) {
+  for (unsigned i = 0; i < 0x10000u; i++) {
+    state->memory[i] = 0;
+  }
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
     state->wet_left[i] = 0;
     state->wet_right[i] = 0;
   }
   ifx_front_core_state_init(&state->front);
   ifx_hush_core_state_init(&state->hush);
-  ifx_chorus_core_state_init(&state->chorus, config->coef[IFX_CHORUS8_COEF_REG_LEFT],
+  ifx_chorus_core_state_init(&state->chorus, &ifx_chorus_core_geometry_cfg4,
+                             config->coef[IFX_CHORUS8_COEF_REG_LEFT],
                              config->coef[IFX_CHORUS8_COEF_REG_RIGHT]);
   ifx_process_block_init(&state->block);
 }

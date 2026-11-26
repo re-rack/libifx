@@ -22,8 +22,9 @@ shared Hush, mixer, ducker and regen limiter are in place.
 - Run the library at the device's own sample rate (about 39 kHz, a fixed constant) and resample
   to and from the host's rate; the library is bit-exact only there.
 - Feed it one mono input, as the device's single A/D does, and take its stereo output.
-- For the device's analog Direct Pre path, pass the stereo dry signal through the library's Direct
-  Level helper; Direct Post is part of each effect.
+- Direct Post, the dry signal after the digital Hush, is part of each effect. Direct Pre is the
+  device's analog dry path and is not ported: with DIRECT HUSH at PRE the effect outputs only the
+  wet signal, and the host mixes in its own dry signal.
 
 ## Disclaimer
 

@@ -7,6 +7,8 @@
 #   make check-install                  build a C and a C++ host against a staged install
 #   make check                          the tables fixture and the host checks
 #   make check-fixture FIXTURE=<name>   one fixture, or several names in quotes
+#   make benchmark-all-fx               every effect on the Q23 test signal, ns per frame
+#   make benchmark-fx FX=<name>         one effect
 #   make check-tables                   the tables fixture
 #   make check-host                     the context and the process entry points
 #   make check-convert                  all 2^32 floats on every conversion path, NEON and RVV
@@ -94,9 +96,13 @@ ARCH := $(if $(findstring x86_64,$(MACHINE)),x86_64,$(if $(findstring aarch64,$(
 
 LIB_OBJECTS := $(patsubst %.c,$(BUILD)/%.o,$(wildcard src/*.c))
 LIB_HEADERS := $(wildcard src/*.h)
-CHECK_OBJECTS := $(BUILD)/tests/ifx_check.o $(BUILD)/tests/ifx_fixture.o
-RECORD_OBJECTS := $(BUILD)/tests/ifx_record.o $(BUILD)/tests/ifx_fixture.o
+TEST_EFFECT_OBJECTS := $(BUILD)/tests/effect_delay.o
+CHECK_OBJECTS := $(BUILD)/tests/ifx_check.o $(BUILD)/tests/ifx_fixture.o $(BUILD)/tests/ifx_signal.o \
+                 $(TEST_EFFECT_OBJECTS)
+RECORD_OBJECTS := $(BUILD)/tests/ifx_record.o $(BUILD)/tests/ifx_fixture.o $(BUILD)/tests/ifx_signal.o \
+                  $(TEST_EFFECT_OBJECTS) $(BUILD)/tests/firmware_delay.o
 OBJECTS := $(sort $(LIB_OBJECTS) $(CHECK_OBJECTS) $(RECORD_OBJECTS) \
+             $(BUILD)/tests/ifx_bench.o \
              $(patsubst %.c,$(BUILD)/%.o,$(wildcard tests/test_convert.c)))
 DEPS := $(OBJECTS:.o=.d) $(HARNESS_OBJECTS:.o=.d) \
         $(patsubst $(HARNESS)/%.c,$(BUILD_HARNESS)/%.d,$(TOOL_SOURCES))
@@ -188,6 +194,13 @@ check-install:
 
 check: $(BUILD)/ifx_check
 	@$(BUILD)/ifx_check
+
+benchmark-all-fx: $(BUILD)/ifx_bench
+	@$(BUILD)/ifx_bench
+
+benchmark-fx: $(BUILD)/ifx_bench
+	@if [ -z "$(FX)" ]; then echo 'usage: make benchmark-fx FX=<name>' >&2; exit 1; fi
+	@$(BUILD)/ifx_bench $(FX)
 
 check-fixture: $(BUILD)/ifx_check
 	@if [ -z "$(FIXTURE)" ]; then echo 'usage: make check-fixture FIXTURE=<name>' >&2; exit 1; fi
@@ -393,6 +406,10 @@ $(BUILD)/ifx_check: $(CHECK_OBJECTS) $(BUILD)/libifx.a
 	@mkdir -p $(@D)
 	$(CC) $(STRICT) $(CFLAGS) -o $@ $^ -lm
 
+$(BUILD)/ifx_bench: $(BUILD)/tests/ifx_bench.o $(BUILD)/tests/ifx_signal.o $(BUILD)/tests/effect_delay.o $(BUILD)/libifx.a
+	@mkdir -p $(@D)
+	$(CC) $(STRICT) $(CFLAGS) -o $@ $^ -lm
+
 $(BUILD)/ifx_record: $(RECORD_OBJECTS) $(BUILD)/libifx.a $(LIBRARY)
 	@mkdir -p $(@D)
 	$(CC) $(STRICT) $(CFLAGS) -o $@ $(RECORD_OBJECTS) $(BUILD)/libifx.a $(LIBRARY) -lm
@@ -417,7 +434,7 @@ $(BUILD_HARNESS)/%.o: $(HARNESS)/%.c Makefile
 -include $(DEPS)
 
 .PHONY: build install uninstall check-install check check-fixture check-tables check-host \
-        check-convert $(CONVERT_TARGETS) record-all-fixtures record-fixture harness tools \
+        benchmark-all-fx benchmark-fx check-convert $(CONVERT_TARGETS) record-all-fixtures record-fixture harness tools \
         ghidra-prepare ghidra-clean format dsp-core-check static-check static-ruff static-format \
         static-cppcheck static-clang static-gcc sanitize sanitize-gcc sanitize-clang exercise \
         coverage clean

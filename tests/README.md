@@ -3,8 +3,8 @@
 The library is checked against the original firmware, not against expectations
 written by hand. The Intellifex LTD's firmware runs in the two-CPU harness in
 `reverse_engineering/harness/`, the recorder stores what it computes, and
-`make check` requires the library to reproduce it exactly: every table word and,
-once effects exist, every output sample. A difference of one LSB fails.
+`make check` requires the library to reproduce it exactly: every table word and
+every output sample. A difference of one LSB fails.
 
 ## Record once, check offline
 
@@ -29,10 +29,34 @@ A fixture (`ifx_fixture.h`) is the magic `IFXFIX01` and little-endian sections o
 records, each section a kind, a record size and a record count. The recorder
 writes `<path>.tmp` and renames it, so a failed run leaves the old file alone.
 
-`tables.bin` holds a table index (each table's name, first word and word count)
-and the table words: the ten shared-image tables at `P:$07BE..$0A0F` as the DSP's
-P memory holds them after boot, and the MCU's 108-byte parameter window table at
+| Kind | Records |
+|---|---|
+| `IFX_FIX_KNOBS` | the effect's knob table: name, minimum, maximum and default |
+| `IFX_FIX_SETUP` | one knob vector and the config words the firmware staged |
+| `IFX_FIX_SEGMENT` | one knob vector and the frames it runs for |
+| `IFX_FIX_OUTPUT` | one device output frame, 24-bit L and R words |
+| `IFX_FIX_TABLE_INDEX` / `_WORDS` | a lookup table's name, first word and words |
+
+`tables.bin` holds the ten shared-image tables at `P:$07BE..$0A0F` as the DSP's P
+memory holds them after boot, and the MCU's 108-byte parameter window table at
 EPROM `0x12C8`. It proves that `src/ifx_tables.c` is the firmware's, word for word.
+
+An effect fixture holds its knob table, setup records for each knob on its own
+(every position when it has 32 or fewer, else 32 spread positions plus the
+default), four multi-knob presets (every knob at 33 %, 66 %, minimum and
+maximum, built one knob at a time), the configuration's factory presets, and one
+audio run with every knob swept and given fast turns 64 frames apart.
+
+Each knob also carries an explicit active value, chosen so all of the effect's
+paths move: for Delay that is DELAY on, DUCKER on, HUSH on with a moving
+threshold, DIRECT HUSH at POST, short delay times, and high regeneration. A knob
+marked as a mode knob gets one full active walk per value; D TYPE therefore runs
+the whole walk for Stereo, Ping-Pong and 2-Tap. Each walk starts with the mode
+change and an 8,192-frame settle, long enough for the wipe and several echoes.
+Delay-time knobs hold their maximum long enough for the buffer to wrap in every
+mode. The audio run feeds generated input from rest after `ifx_emu_settle` and
+`ifx_emu_align`; fixture output frame m is the device's output at feed index
+m + 32.
 
 ## How the checker compares
 
@@ -46,15 +70,43 @@ EPROM `0x12C8`. It proves that `src/ifx_tables.c` is the firmware's, word for wo
   with the frame that completes it, all four entry points agree over random
   buffer sizes (0, 1, 31, 32, 33 and large among them), split and float work in
   place, and junk in the upper eight input bits is ignored.
+- **Effect fixtures:** the knob table matches; every setup record's words match;
+  setup at min−1 and max+1 equals setup at min and max; configs are filled with
+  junk before setup; setup rejects NULL pointers and a context without a rate.
+  The audio run replays through split, float, interleaved and frame with random
+  buffer sizes and junk in the upper input bits; the output must equal the
+  fixture's words minus `0x066666`, saturated to Q23.
 - **Converter:** `make check-convert` checks `ifx_convert.c` on every float and
   every Q23 pattern, on each SIMD path the machine has and on NEON and RVV under
   qemu; `make check` and `make sanitize` run its quick subset.
 - **Packaging:** `make check-install` installs the library into a staging
   directory and builds a C and a C++ host from `ifx.h` and `libifx.a` alone.
 
+## Targets
+
+```
+make check                          every table, host and effect fixture
+make check-fixture FIXTURE=delay    one effect fixture
+make record-fixture FIXTURE=delay   rewrite it from the firmware harness
+make record-all-fixtures            rewrite every fixture
+make benchmark-all-fx               every effect, ns per frame
+make benchmark-fx FX=delay          one effect
+```
+
+## Adding an effect
+
+Describe it once: a knob table with active values and its native adapter in
+`tests/effect_<name>.c`, a firmware adapter in `tests/firmware_<name>.c`, and one
+line in `tests/ifx_effects.h`. Then `make record-fixture FIXTURE=<name>`,
+`make check` and `make coverage`, and prove the fixture by mutation: a constant
+off by one LSB, a rounding dropped or a branch changed in each new source must
+make `make check` fail.
+
 ## Limits
 
-- No effect exists yet, so there is no audio fixture and no effect replay.
-- The tables fixture covers the shared image; a configuration's own tables come
-  with its effect.
+- Each fixture is one scripted run; behaviour the script never reaches is not
+  covered.
+- Internal state is not compared, only setup words and outputs.
+- Knob turns are recorded through the MCU's send routine, one message per change;
+  the panel's one message per detent is checked by the harness, not here.
 - Everything is at the device rate; no arithmetic depends on the rate.

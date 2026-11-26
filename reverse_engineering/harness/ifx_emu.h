@@ -69,6 +69,11 @@ unsigned ifx_emu_block_phase(const ifx_emu *emu);
 bool ifx_emu_align(ifx_emu *emu);
 uint64_t ifx_emu_blocks(const ifx_emu *emu);
 
+/* Feed silence until the next P:$0400 pass has run its message dispatcher, then
+ * stop at the dispatcher's return, before the configuration can touch the words
+ * the handlers staged. False if no pass reached it within 64 frames. */
+bool ifx_emu_apply(ifx_emu *emu);
+
 /* Write a user preset for `config` with `values` indexed by parameter number,
  * recall it through the panel, and leave the panel on it. */
 bool ifx_emu_load(ifx_emu *emu, unsigned config, const uint8_t values[IFX_EMU_PARAMETER_COUNT]);

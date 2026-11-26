@@ -140,6 +140,8 @@ harness` builds `build/harness/libifxharness.a`, `make tools` the programs below
 - **Sending.** `ifx_emu_send` runs `C:0EE0` as a call from the MCU's idle point in its main loop
   (`C:0140`) and restores the MCU's registers afterwards; the DSP runs alongside with its SSI
   frames held, so audio does not advance.
+- **Setup words.** `ifx_emu_apply` feeds silence until the next pass has run its dispatcher and
+  stops at its return, before the configuration can change what the handlers staged.
 - **Starting at rest.** `ifx_emu_load` writes a user preset, clears the DSP's memory, reboots the
   board and recalls the preset through the panel; `ifx_emu_settle` then feeds silence until the
   wipe and initialisation are done and the output has rested on `$066666`.

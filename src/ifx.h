@@ -30,6 +30,8 @@ extern "C" {
 
 #include "ifx_base.h"
 #include "ifx_convert.h"
+#include "ifx_delay.h"
+#include "ifx_delay_setup.h"
 
 #ifdef __cplusplus
 }

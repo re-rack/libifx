@@ -11,6 +11,8 @@ struct ifx_dsp_board {
   uint64_t frames;
   uint64_t passes;
   uint16_t last_pc;
+  uint32_t breakpoint;
+  bool break_hit;
   unsigned receive_overruns;
   unsigned transmit_underruns;
   bool host_request;
@@ -61,6 +63,8 @@ void ifx_dsp_board_reset(ifx_dsp_board *board) {
   board->frames = 0;
   board->passes = 0;
   board->last_pc = 0;
+  board->breakpoint = 0xFFFFFFFFu;
+  board->break_hit = false;
   board->receive_overruns = 0;
   board->transmit_underruns = 0;
   board->host_request = false;
@@ -111,6 +115,10 @@ void ifx_dsp_board_step(ifx_dsp_board *board) {
   if (!dsp_core.running) {
     return;
   }
+  if (dsp_core.pc == board->breakpoint) {
+    board->break_hit = true;
+    return;
+  }
   if (dsp_core.pc == 0x0400u && board->last_pc != 0x0400u) {
     board->passes++;
   }
@@ -121,7 +129,7 @@ void ifx_dsp_board_step(ifx_dsp_board *board) {
 
 void ifx_dsp_board_run(ifx_dsp_board *board, uint32_t cycles) {
   uint32_t elapsed = 0;
-  while (elapsed < cycles && dsp_core.running) {
+  while (elapsed < cycles && dsp_core.running && !board->break_hit) {
     uint64_t before = board->cycles;
     ifx_dsp_board_step(board);
     elapsed += (uint32_t)(board->cycles - before);
@@ -222,6 +230,23 @@ uint64_t ifx_dsp_board_frames(const ifx_dsp_board *board) { return board->frames
 uint64_t ifx_dsp_board_passes(const ifx_dsp_board *board) { return board->passes; }
 
 uint64_t ifx_dsp_board_cycles(const ifx_dsp_board *board) { return board->cycles; }
+
+uint32_t ifx_dsp_board_pc(const ifx_dsp_board *board) {
+  (void)board;
+  return dsp_core.pc;
+}
+
+void ifx_dsp_board_set_breakpoint(ifx_dsp_board *board, uint32_t pc) {
+  board->breakpoint = pc;
+  board->break_hit = false;
+}
+
+bool ifx_dsp_board_breakpoint_hit(const ifx_dsp_board *board) { return board->break_hit; }
+
+void ifx_dsp_board_clear_breakpoint(ifx_dsp_board *board) {
+  board->breakpoint = 0xFFFFFFFFu;
+  board->break_hit = false;
+}
 
 bool ifx_dsp_board_running(const ifx_dsp_board *board) {
   (void)board;

@@ -4,8 +4,11 @@
  * exits non-zero when anything failed. */
 #include "ifx.h"
 #include "ifx_dsp_math.h"
+#include "ifx_effect.h"
 #include "ifx_fixture.h"
+#include "ifx_mixer_core.h"
 #include "ifx_process.h"
+#include "ifx_signal.h"
 #include "ifx_tables.h"
 
 #include <math.h>
@@ -588,6 +591,396 @@ static unsigned check_host(void) {
   return failures;
 }
 
+/* --- effect fixtures ---------------------------------------------------- */
+
+static int32_t expected_word(int32_t device_word) {
+  int32_t value = device_word - IFX_MIXER_OFFSET;
+  if (value > IFX_W24_MAX) {
+    value = IFX_W24_MAX;
+  } else if (value < IFX_W24_MIN) {
+    value = IFX_W24_MIN;
+  }
+  return value;
+}
+
+static void segment_label(const ifx_effect *effect, const int32_t *values, char *buffer,
+                          size_t bytes) {
+  unsigned changed[2] = {0, 0};
+  unsigned count = 0;
+  for (unsigned knob = 0; knob < effect->knobs; knob++) {
+    if (values[knob] != effect->knob[knob].def) {
+      if (count < 2u) {
+        changed[count] = knob;
+      }
+      count++;
+    }
+  }
+  if (count == 0u) {
+    snprintf(buffer, bytes, "defaults");
+  } else if (count == 1u) {
+    snprintf(buffer, bytes, "%.24s = %d", effect->knob[changed[0]].name, (int)values[changed[0]]);
+  } else if (count == 2u) {
+    snprintf(buffer, bytes, "%.20s = %d, %.20s = %d", effect->knob[changed[0]].name,
+             (int)values[changed[0]], effect->knob[changed[1]].name, (int)values[changed[1]]);
+  } else {
+    snprintf(buffer, bytes, "%.20s = %d (+%u)", effect->knob[changed[0]].name,
+             (int)values[changed[0]], count - 1u);
+  }
+}
+
+static int check_effect_knobs(const ifx_effect *effect, const ifx_fixture *fixture) {
+  uint32_t count = 0;
+  uint32_t size = 0;
+  const void *records = ifx_fixture_records(fixture, IFX_FIX_KNOBS, &count, &size);
+  int ok = records != NULL && count == effect->knobs;
+  for (unsigned knob = 0; ok && knob < effect->knobs; knob++) {
+    ifx_fixture_knob entry;
+    ifx_fixture_get_knob((const unsigned char *)records + (size_t)size * knob, &entry);
+    const ifx_effect_knob *want = &effect->knob[knob];
+    ok = strcmp(entry.name, want->name) == 0 && entry.min == want->min && entry.max == want->max &&
+         entry.def == want->def;
+  }
+  if (!ok) {
+    detail("fixture out of date: run make record-fixture FIXTURE=%s", effect->name);
+    failed();
+  }
+  return ok;
+}
+
+static unsigned check_effect_setup(const ifx_effect *effect, const ifx_fixture *fixture) {
+  uint32_t count = 0;
+  uint32_t size = 0;
+  const void *records = ifx_fixture_records(fixture, IFX_FIX_SETUP, &count, &size);
+  unsigned knobs = effect->knobs;
+  unsigned words = effect->setup_words;
+  if (records == NULL || count == 0u || size != 4u * (knobs + words)) {
+    detail("the fixture holds no usable setup records");
+    failed();
+    return 0;
+  }
+  int32_t *values = malloc((knobs + words) * sizeof *values);
+  int32_t *mine = malloc(words * sizeof *mine);
+  if (values == NULL || mine == NULL) {
+    detail("out of memory");
+    failed();
+    free(values);
+    free(mine);
+    return 0;
+  }
+  for (uint32_t record = 0; record < count; record++) {
+    ifx_fixture_get_i32((const unsigned char *)records + (size_t)size * record, knobs + words,
+                        values);
+    if (effect->setup(values, mine) != 0) {
+      char label[64];
+      segment_label(effect, values, label, sizeof label);
+      detail("setting %u (%s) has no native setup", record, label);
+      failed();
+      continue;
+    }
+    for (unsigned word = 0; word < words; word++) {
+      uint32_t want = (uint32_t)values[knobs + word] & 0xFFFFFFu;
+      uint32_t got = (uint32_t)mine[word] & 0xFFFFFFu;
+      if (want != got) {
+        char label[64];
+        segment_label(effect, values, label, sizeof label);
+        detail("setting %u (%s) word %u: %06X, firmware %06X", record, label, word, got, want);
+        failed();
+        break;
+      }
+    }
+  }
+  free(values);
+  free(mine);
+  return count;
+}
+
+typedef struct {
+  const ifx_effect *effect;
+  const int32_t *values;
+  const uint32_t *frames;
+  unsigned segments;
+  const int32_t *q23;
+  const float *f32;
+  const unsigned char *outputs;
+} effect_job;
+
+typedef enum { AUDIO_SPLIT, AUDIO_FLOAT, AUDIO_INTERLEAVED, AUDIO_FRAME } audio_mode;
+
+static const char *audio_mode_name(audio_mode mode) {
+  switch (mode) {
+  case AUDIO_FLOAT:
+    return "float";
+  case AUDIO_INTERLEAVED:
+    return "interleaved";
+  case AUDIO_FRAME:
+    return "frame";
+  case AUDIO_SPLIT:
+  default:
+    return "24-bit";
+  }
+}
+
+#define CHUNK_MAX 512u
+
+static unsigned effect_audio_run(const effect_job *job, audio_mode mode, uint32_t seed) {
+  const ifx_effect *effect = job->effect;
+  unsigned knobs = effect->knobs;
+  unsigned mismatches = 0;
+  int32_t *scratch_left = malloc(CHUNK_MAX * sizeof *scratch_left);
+  int32_t *scratch_right = malloc(CHUNK_MAX * sizeof *scratch_right);
+  int32_t *pairs = malloc(2u * CHUNK_MAX * sizeof *pairs);
+  int32_t *mono = malloc(CHUNK_MAX * sizeof *mono);
+  int32_t *got_left = malloc(CHUNK_MAX * sizeof *got_left);
+  int32_t *got_right = malloc(CHUNK_MAX * sizeof *got_right);
+  float *fl = malloc(CHUNK_MAX * sizeof *fl);
+  float *fr = malloc(CHUNK_MAX * sizeof *fr);
+  int32_t *current = malloc(knobs * sizeof *current);
+  if (scratch_left == NULL || scratch_right == NULL || pairs == NULL || mono == NULL ||
+      got_left == NULL || got_right == NULL || fl == NULL || fr == NULL || current == NULL) {
+    detail("out of memory");
+    failed();
+    goto done;
+  }
+  memcpy(current, job->values, knobs * sizeof *current);
+  void *instance = effect->open(current);
+  if (instance == NULL) {
+    detail("the effect refused its default setting");
+    failed();
+    goto done;
+  }
+  size_t position = 0;
+  for (unsigned index = 0; index < job->segments; index++) {
+    const int32_t *setting = job->values + (size_t)index * knobs;
+    if (index != 0u) {
+      for (unsigned knob = 0; knob < knobs; knob++) {
+        if (setting[knob] != current[knob] &&
+            effect->set_knob(instance, knob, setting[knob]) != 0) {
+          detail("the effect refused %s = %d", effect->knob[knob].name, (int)setting[knob]);
+          failed();
+        }
+      }
+      memcpy(current, setting, knobs * sizeof *current);
+    }
+    size_t end = position + job->frames[index];
+    while (position < end) {
+      size_t chunk = 1u + next_random(&seed) % CHUNK_MAX;
+      if (chunk > end - position) {
+        chunk = end - position;
+      }
+      const int paired = mode == AUDIO_INTERLEAVED || mode == AUDIO_FRAME;
+      const int32_t high = paired ? 0x5A000000 : 0;
+      for (size_t frame = 0; frame < chunk; frame++) {
+        mono[frame] = job->q23[position + frame] ^ high;
+      }
+      switch (mode) {
+      case AUDIO_SPLIT:
+        effect->split(instance, job->q23 + position, scratch_left, scratch_right, chunk);
+        break;
+      case AUDIO_FLOAT:
+        effect->f32(instance, job->f32 + position, fl, fr, chunk);
+        ifx_f32_to_q23(scratch_left, fl, chunk);
+        ifx_f32_to_q23(scratch_right, fr, chunk);
+        break;
+      case AUDIO_INTERLEAVED:
+        effect->interleaved(instance, mono, pairs, chunk);
+        break;
+      case AUDIO_FRAME:
+        for (size_t frame = 0; frame < chunk; frame++) {
+          effect->frame(instance, mono[frame], pairs + 2u * frame);
+        }
+        break;
+      }
+      for (size_t frame = 0; frame < chunk; frame++) {
+        got_left[frame] = paired != 0 ? pairs[2u * frame] : scratch_left[frame];
+        got_right[frame] = paired != 0 ? pairs[2u * frame + 1u] : scratch_right[frame];
+      }
+      for (size_t frame = position; frame < end && frame < position + chunk; frame++) {
+        int32_t want_left = 0;
+        int32_t want_right = 0;
+        ifx_fixture_get_output(job->outputs + frame * IFX_FIX_OUTPUT_SIZE, &want_left, &want_right);
+        int32_t have_left = got_left[frame - position];
+        int32_t have_right = got_right[frame - position];
+        if (have_left != expected_word(want_left) || have_right != expected_word(want_right)) {
+          char label[64];
+          segment_label(effect, setting, label, sizeof label);
+          detail("segment %u (%s) frame %zu %s: %d/%d, firmware %d/%d", index, label, frame,
+                 audio_mode_name(mode), (int)have_left, (int)have_right,
+                 (int)expected_word(want_left), (int)expected_word(want_right));
+          mismatches++;
+          failed();
+        }
+      }
+      position += chunk;
+    }
+  }
+  effect->close(instance);
+done:
+  free(scratch_left);
+  free(scratch_right);
+  free(pairs);
+  free(mono);
+  free(got_left);
+  free(got_right);
+  free(fl);
+  free(fr);
+  free(current);
+  return mismatches;
+}
+
+static size_t check_effect_audio(const ifx_effect *effect, const ifx_fixture *fixture) {
+  unsigned knobs = effect->knobs;
+  uint32_t segments = 0;
+  uint32_t segment_size = 0;
+  uint32_t output_count = 0;
+  uint32_t output_size = 0;
+  const void *segment_records =
+      ifx_fixture_records(fixture, IFX_FIX_SEGMENT, &segments, &segment_size);
+  const void *outputs = ifx_fixture_records(fixture, IFX_FIX_OUTPUT, &output_count, &output_size);
+  if (segment_records == NULL || outputs == NULL || segments == 0u || output_count == 0u ||
+      output_size != IFX_FIX_OUTPUT_SIZE) {
+    detail("the fixture holds no audio run");
+    failed();
+    return 0;
+  }
+  if (segment_size != 4u * (knobs + 1u)) {
+    detail("segment records are %u bytes", segment_size);
+    failed();
+    return 0;
+  }
+  int32_t *values = malloc((size_t)segments * knobs * sizeof *values);
+  uint32_t *frames = malloc(segments * sizeof *frames);
+  if (values == NULL || frames == NULL) {
+    detail("out of memory");
+    failed();
+    free(values);
+    free(frames);
+    return 0;
+  }
+  size_t total = 0;
+  for (uint32_t index = 0; index < segments; index++) {
+    uint32_t count = 0;
+    ifx_fixture_get_segment((const unsigned char *)segment_records + (size_t)segment_size * index,
+                            knobs, values + (size_t)index * knobs, &count);
+    frames[index] = count;
+    total += count;
+  }
+  if (total != output_count) {
+    detail("the segments hold %zu frames, the outputs %u", total, output_count);
+    failed();
+    free(values);
+    free(frames);
+    return 0;
+  }
+  effect_job job;
+  memset(&job, 0, sizeof job);
+  job.effect = effect;
+  job.values = values;
+  job.frames = frames;
+  job.segments = segments;
+  job.outputs = outputs;
+  int32_t *q23 = malloc(total * sizeof *q23);
+  float *f32 = malloc(total * sizeof *f32);
+  if (q23 == NULL || f32 == NULL) {
+    detail("out of memory");
+    failed();
+    goto done;
+  }
+  ifx_signal signal;
+  ifx_signal_init(&signal);
+  ifx_signal_fill(&signal, q23, total);
+  for (size_t i = 0; i < total; i++) {
+    f32[i] = (float)q23[i] * 0x1p-23f;
+  }
+  job.q23 = q23;
+  job.f32 = f32;
+  for (int mode = AUDIO_SPLIT; mode <= AUDIO_FRAME; mode++) {
+    effect_audio_run(&job, (audio_mode)mode, 0x12345678u);
+  }
+done:
+  free(q23);
+  free(f32);
+  free(values);
+  free(frames);
+  return total;
+}
+
+static void check_effect_range(const ifx_effect *effect) {
+  const ifx_segment defaults = {IFX_ALL, 0, 0};
+  unsigned knobs = effect->knobs;
+  unsigned words = effect->setup_words;
+  int32_t *values = malloc(knobs * sizeof *values);
+  int32_t *at_end = malloc(words * sizeof *at_end);
+  int32_t *past_end = malloc(words * sizeof *past_end);
+  if (values == NULL || at_end == NULL || past_end == NULL) {
+    detail("out of memory");
+    failed();
+    free(values);
+    free(at_end);
+    free(past_end);
+    return;
+  }
+  ifx_effect_values(effect, &defaults, values);
+  for (unsigned knob = 0; knob < knobs; knob++) {
+    const ifx_effect_knob *record = &effect->knob[knob];
+    for (unsigned side = 0; side < 2u; side++) {
+      const int edge = side == 0u ? record->min : record->max;
+      const int past = side == 0u ? record->min - 1 : record->max + 1;
+      values[knob] = edge;
+      const int edge_ok = effect->setup(values, at_end);
+      values[knob] = past;
+      const int past_ok = effect->setup(values, past_end);
+      values[knob] = record->def;
+      if (edge_ok != 0 || past_ok != 0) {
+        detail("%s: %s = %d or %d has no setup", effect->name, record->name, edge, past);
+        failed();
+        continue;
+      }
+      for (unsigned word = 0; word < words; word++) {
+        const uint32_t want = (uint32_t)at_end[word] & 0xFFFFFFu;
+        const uint32_t got = (uint32_t)past_end[word] & 0xFFFFFFu;
+        if (want != got) {
+          detail("%s: %s = %d %06X, but = %d %06X (word %u)", effect->name, record->name, edge,
+                 want, past, got, word);
+          failed();
+          break;
+        }
+      }
+    }
+  }
+  free(values);
+  free(at_end);
+  free(past_end);
+}
+
+static unsigned check_effect(const ifx_effect *effect) {
+  char path[160];
+  int length = snprintf(path, sizeof path, FIXTURE_DIR "/%s.bin", effect->name);
+  ifx_fixture fixture;
+  item_failures = 0;
+  item_shown = 0;
+  unsigned settings = 0;
+  size_t frames = 0;
+  if (length < 0 || (size_t)length >= sizeof path || ifx_fixture_load(&fixture, path) != 0) {
+    printf("%-17s FAIL  cannot load the fixture\n", effect->name);
+    return 1;
+  }
+  int knobs_ok = check_effect_knobs(effect, &fixture);
+  if (effect->rejects() != 0) {
+    detail("the setup accepts a NULL pointer or a context without a rate");
+    failed();
+  }
+  if (knobs_ok != 0) {
+    check_effect_range(effect);
+    settings = check_effect_setup(effect, &fixture);
+    frames = check_effect_audio(effect, &fixture);
+  }
+  ifx_fixture_free(&fixture);
+  int ok = item_failures == 0;
+  printf("%-17s %s  %u settings, %zu frames (split, float, interleaved and frame)\n", effect->name,
+         ok ? "PASS" : "FAIL", settings, frames);
+  return ok ? 0 : 1;
+}
+
 static void usage(const char *program) {
   fprintf(stderr, "usage: %s [tables] [host]\n", program);
   fprintf(stderr, "  no name: all of them\n");
@@ -597,11 +990,15 @@ int main(int argc, char **argv) {
   unsigned failures = 0;
   int tables = argc == 1;
   int host = argc == 1;
+  int all_effects = argc == 1;
+  int selected_delay = 0;
   for (int arg = 1; arg < argc; arg++) {
     if (strcmp(argv[arg], "tables") == 0) {
       tables = 1;
     } else if (strcmp(argv[arg], "host") == 0) {
       host = 1;
+    } else if (strcmp(argv[arg], "delay") == 0) {
+      selected_delay = 1;
     } else {
       usage(argv[0]);
       return 2;
@@ -612,6 +1009,9 @@ int main(int argc, char **argv) {
   }
   if (host != 0) {
     failures += check_host();
+  }
+  if (all_effects != 0 || selected_delay != 0) {
+    failures += check_effect(&ifx_effect_delay);
   }
   return failures == 0 ? 0 : 1;
 }

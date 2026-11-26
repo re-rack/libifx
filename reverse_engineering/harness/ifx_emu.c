@@ -582,6 +582,26 @@ unsigned ifx_emu_block_phase(const ifx_emu *emu) {
   return (pointer - 0x80u) & 0x1Fu;
 }
 
+bool ifx_emu_apply(ifx_emu *emu) {
+  if (emu == NULL || !ifx_dsp_board_running(emu->dsp)) {
+    return false;
+  }
+  if ((ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, 0x0000u) & (1u << 1)) == 0u) {
+    return true;
+  }
+  ifx_dsp_board_set_breakpoint(emu->dsp, 0x04BCu);
+  bool hit = false;
+  for (unsigned i = 0; i < 64u && !hit; ++i) {
+    ifx_emu_feed feed = {NULL, 1u, false};
+    if (!ifx_emu_audio(emu, &feed, NULL, NULL)) {
+      break;
+    }
+    hit = ifx_dsp_board_breakpoint_hit(emu->dsp);
+  }
+  ifx_dsp_board_clear_breakpoint(emu->dsp);
+  return hit;
+}
+
 bool ifx_emu_align(ifx_emu *emu) {
   if (emu == NULL || !ifx_emu_ready(emu)) {
     return false;

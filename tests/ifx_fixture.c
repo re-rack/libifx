@@ -26,6 +26,10 @@ static unsigned fixed_size(unsigned kind) {
     return IFX_FIX_TABLE_INDEX_SIZE;
   case IFX_FIX_TABLE_WORDS:
     return IFX_FIX_TABLE_WORDS_SIZE;
+  case IFX_FIX_KNOBS:
+    return IFX_FIX_KNOBS_SIZE;
+  case IFX_FIX_OUTPUT:
+    return IFX_FIX_OUTPUT_SIZE;
   default:
     return 0;
   }
@@ -86,9 +90,26 @@ int ifx_fixture_load(ifx_fixture *fixture, const char *path) {
     }
     previous = kind;
     unsigned fixed = fixed_size(kind);
-    if (fixed == 0u || size != fixed) {
+    if (fixed != 0u && size != fixed) {
       fprintf(stderr, "ifx: %s kind %u has record size %u, not %u\n", path, kind, size, fixed);
       goto fail;
+    }
+    if (kind == IFX_FIX_KNOBS) {
+      if (count == 0u) {
+        fprintf(stderr, "ifx: %s has no knobs\n", path);
+        goto fail;
+      }
+      fixture->knobs = count;
+    } else if (kind == IFX_FIX_SETUP) {
+      if (fixture->knobs == 0u || size % 4u != 0u || size / 4u <= fixture->knobs) {
+        fprintf(stderr, "ifx: %s setup record is %u bytes\n", path, size);
+        goto fail;
+      }
+    } else if (kind == IFX_FIX_SEGMENT) {
+      if (fixture->knobs == 0u || size != 4u * (fixture->knobs + 1u)) {
+        fprintf(stderr, "ifx: %s segment record is %u bytes\n", path, size);
+        goto fail;
+      }
     }
     size_t records = (size_t)size * (size_t)count;
     if (size != 0u && count != 0u && records / (size_t)count != (size_t)size) {
@@ -295,3 +316,64 @@ void ifx_fixture_put_word(unsigned char *record, int32_t value) {
 }
 
 int32_t ifx_fixture_get_word(const void *record) { return word24(record); }
+
+void ifx_fixture_put_i32(unsigned char *record, uint32_t words, const int32_t *values) {
+  for (uint32_t i = 0; i < words; i++) {
+    put_u32(record + 4u * i, (uint32_t)values[i]);
+  }
+}
+
+void ifx_fixture_get_i32(const void *record, uint32_t words, int32_t *values) {
+  const unsigned char *bytes = record;
+  for (uint32_t i = 0; i < words; i++) {
+    values[i] = (int32_t)get_u32(bytes + 4u * i);
+  }
+}
+
+void ifx_fixture_put_segment(unsigned char *record, uint32_t knobs, const int32_t *values,
+                             uint32_t frames) {
+  ifx_fixture_put_i32(record, knobs, values);
+  put_u32(record + 4u * knobs, frames);
+}
+
+void ifx_fixture_get_segment(const void *record, uint32_t knobs, int32_t *values,
+                             uint32_t *frames) {
+  if (values != NULL) {
+    ifx_fixture_get_i32(record, knobs, values);
+  }
+  if (frames != NULL) {
+    *frames = get_u32((const unsigned char *)record + 4u * knobs);
+  }
+}
+
+void ifx_fixture_put_knob(unsigned char *record, const ifx_fixture_knob *knob) {
+  memset(record, 0, IFX_FIX_KNOBS_SIZE);
+  size_t length = strlen(knob->name);
+  if (length >= IFX_FIX_TABLE_NAME) {
+    length = IFX_FIX_TABLE_NAME - 1u;
+  }
+  memcpy(record, knob->name, length);
+  put_u32(record + IFX_FIX_TABLE_NAME, (uint32_t)knob->min);
+  put_u32(record + IFX_FIX_TABLE_NAME + 4u, (uint32_t)knob->max);
+  put_u32(record + IFX_FIX_TABLE_NAME + 8u, (uint32_t)knob->def);
+}
+
+void ifx_fixture_get_knob(const void *record, ifx_fixture_knob *knob) {
+  const unsigned char *bytes = record;
+  memcpy(knob->name, bytes, IFX_FIX_TABLE_NAME);
+  knob->name[IFX_FIX_TABLE_NAME] = '\0';
+  knob->min = (int32_t)get_u32(bytes + IFX_FIX_TABLE_NAME);
+  knob->max = (int32_t)get_u32(bytes + IFX_FIX_TABLE_NAME + 4u);
+  knob->def = (int32_t)get_u32(bytes + IFX_FIX_TABLE_NAME + 8u);
+}
+
+void ifx_fixture_put_output(unsigned char *record, int32_t left, int32_t right) {
+  put_word24(record, left);
+  put_word24(record + 3, right);
+}
+
+void ifx_fixture_get_output(const void *record, int32_t *left, int32_t *right) {
+  const unsigned char *bytes = record;
+  *left = word24(bytes);
+  *right = word24(bytes + 3);
+}

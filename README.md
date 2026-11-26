@@ -4,14 +4,14 @@ A C17 library, `libifx`, that is to re-create the six effect configurations of t
 Intellifex LTD (1995) for use as audio plugins, bit-exact against the original firmware: for the
 same input and knob settings, the same output samples as the hardware's DSP.
 
-**Status: foundation.** The firmware workspace, the Ghidra project, a two-CPU harness that runs
-the original firmware, and the library's foundation (build, converter, process macro, DSP56000
-arithmetic, shared tables, test framework) are in place; no effect is implemented yet.
+**Status: one of six effects.** The firmware workspace, the Ghidra project, a two-CPU harness that
+runs the original firmware, the library's foundation and test framework, and `ifx_delay` with the
+shared Hush, mixer, ducker and regen limiter are in place.
 
 | Configuration | Effect | Status |
 |---|---|---|
 | Hush; Reverb | `ifx_reverb` | not started |
-| Hush; Delay; Ducker | `ifx_delay` | not started |
+| Hush; Delay; Ducker | `ifx_delay` | complete |
 | Hush; 8 Voice Chorus; Delay | `ifx_chorus8` | not started |
 | Hush; Pitch Shift; Delay | `ifx_pitch` | not started |
 | Hush; Chorus; Delay; Reverb | `ifx_chorus_reverb` | not started |
@@ -42,6 +42,7 @@ The repository holds neither the firmware nor the manual.
 | `make check-convert` | the float converter on every float, every SIMD path |
 | `make record-fixture FIXTURE=<name>`, `make record-all-fixtures` | record fixtures from the firmware harness (needs the EPROM) |
 | `make sanitize`, `make coverage` | the checks under ASan and UBSan; gcov coverage of `src/` |
+| `make benchmark-all-fx`, `make benchmark-fx FX=<name>` | processing time per frame |
 | `make ghidra-prepare` | verify the EPROM, split it, disassemble both processors and build the Ghidra project |
 | `make ghidra-clean` | remove what `ghidra-prepare` generates, keeping the Ghidra project |
 | `make harness`, `make tools` | the firmware harness and its programs (`reverse_engineering/README.md`) |

@@ -8,10 +8,11 @@ has not settled; the harness settles it.
 
 ## Current status
 
-No effect is implemented. The workspace splits and disassembles the EPROM and builds the Ghidra
-project, and the harness runs the original firmware on both CPUs. The MCU's parameter model, the
-MCU–DSP protocol, the DSP's shared code and the structure of every configuration are mapped; most
-kernel arithmetic is still to be settled in the harness.
+Configuration 3 (`ifx_delay`, Hush; Delay; Ducker) is implemented with its fixture. The workspace
+splits and disassembles the EPROM and builds the Ghidra project, and the harness runs the original
+firmware on both CPUs. The MCU's parameter model, the MCU–DSP protocol, the DSP's shared code and
+the structure of every configuration are mapped; the other five configurations' kernels are still
+to be settled in the harness.
 
 ## Hardware
 
@@ -246,12 +247,42 @@ copied from its image, pointers, state), otherwise it processes the Hush block `
 
 - **Shared cores** (identical opcode runs): chorus in configurations 0 and 4, pitch in 1 and 5,
   reverb and mixer in 0 and 1, the ducker in 0, 1 and 3.
-- **Regeneration limiter.** Configurations 0, 1, 3, 4 and 5 sum the voices' pan gains times the
-  regen gains each block (`cfg4 P:$00DC`); while the sum reaches 1.0 they scale both regen words by
-  0.8889 (`$71EB85`) and store them back. A Regen turn rewrites the word. This is the manual's
-  Regeneration Limiting, which it dates to software 1.01.
+- **Regeneration limiter.** Configurations 0, 1, 4 and 5 sum the voices' pan gains times the
+  regen gains each block (`cfg4 P:$00DC`), configuration 3 the two regen words, in 2-Tap only
+  (`cfg3 P:$00A8`); while the sum reaches 1.0 they scale both regen words by 0.8889 (`$71EB85`)
+  and store them back. A Regen turn rewrites only its own word, so the other stays scaled. This is
+  the manual's Regeneration Limiting, which it dates to software 1.01.
 - **Ducker** (`cfg0 P:$01B4`): towards the attenuation word `Y:$0027` with coefficient `$76B296`
   while the input is loud, towards 1.0 with `Y:$0028` otherwise.
+- **Configuration 3 delay** (`cfg3 P:$00A0..$01A6`): the front, Hush and mixer are shared. The
+  configuration keeps two 29,632-word lines at base `$1800` and `$8C00`, with write pointers
+  `Y:$0015`/`$0016`, damping states `Y:$002C`/`$002D`, and reads each line through its delay word.
+  Stereo (`D TYPE` 0, `Y:$0018` bit 3) writes each line from its input plus its own regen;
+  Ping-Pong (1, bit 4) writes line 1 from input plus regen 2 times line 2 and line 2 from regen 1
+  times line 1; 2-Tap (2, bit 5) uses one interleaved pair line at `$1800`, pointer in pairs, and
+  sums input plus both regens into it. The 2-Tap path runs the shared regen limiter every block.
+  The write filter is `out = in + 2·damp·state − 2·damp·in`, with `damp` from
+  `Y:$0019 = low(2·v·$00902E)`. Each tap word is read through `mpyr` with `$7FFFFF`, or 0 while
+  DELAY is off with MUTE TYPE muting the output, which takes one LSB off taps of 2^22 and more.
+  2-Tap reads 16 pairs, 32 consecutive words. A delay word is `196·v` samples (pairs in 2-Tap),
+  `v = 0` reading as 1.
+- **Configuration 3 Ducker**: `Y:$0029 = target + 2·coef·(current − target)`, target `Y:$0027`
+  and coefficient `$76B296` while `|level| >= |Y:$0026|`, else target 1.0 and coefficient
+  `Y:$0028`.
+- **Configuration 3 wipe**: message 35 sets the mode bits at once; only if `X:$0000` bit 3 is
+  clear does it set `X:$0017 = $FFFF` and bits 7, 11 and 3. The arriving pass skips the
+  configuration (`P:$0447`) and reuses the old `$0F40..$0F7F`, the repeated block. Each later pass
+  clears `$0F40..$0F7F`, then while `X:$0017 > $1000` clears 2048 words ending at the pointer and
+  subtracts `$800` (`$FFFF → $F7FF → … → $17FF → $0FFF`). The next call clears bit 11 and sets
+  bits 1 and 12; that pass still skips the configuration and clears bit 12, and the following pass
+  runs the init (`P:$00A2`: clears bit 3, zeroes `Y:$0015`, `Y:$0016`, `Y:$002C`, `Y:$002D`) and
+  processes the block with the current mode. The ducker, being part of the configuration, holds
+  still meanwhile. A mode turn while bit 3 is set changes the mode bits but does not restart or
+  extend the wipe.
+- **Configuration 3 defaults**: factory preset 84 (`SPARE CHANGE`) at EPROM `0x2084 + 55·3`;
+  the 23 values are DELAY LVL 48, L/R DIR 46, DIRECT HUSH PRE, HUSH IN, EXP THRESH 8, REL RATE 5,
+  DELAY active, MUTE TYPE PRE, LEVEL 1/2 58, PAN 1 0, PAN 2 100, TIME 1 75, TIME 2 50, REGEN 1 46,
+  REGEN 2 52, D TYPE Stereo, DL HF DAMP 12, DUCKER on, SENSITIVITY 20, ATTENUATION 19, RELEASE 8.
 
 ## Sample rate
 
@@ -269,5 +300,4 @@ CLKIN.
 - Modulo addressing with `N = $2000` on `M = $1FFF` (configurations 4 and 5): the DSP56000's
   multiple wrap-around rule must hold in the harness.
 - Configuration 4's LFO rate scaling and pointer sweep, configuration 5's grain window source
-  (`Y:$1C80`) and net pitch factor, the reverb network's topology, configuration 3's 2-Tap read
-  across both lines.
+  (`Y:$1C80`) and net pitch factor, the reverb network's topology.

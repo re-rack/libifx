@@ -50,6 +50,13 @@ bool ifx_dsp_board_host_request(const ifx_dsp_board *board);
 void ifx_dsp_board_step(ifx_dsp_board *board);
 void ifx_dsp_board_run(ifx_dsp_board *board, uint32_t cycles);
 
+/* The program counter and a one-shot breakpoint: a step at `pc` stops before
+ * executing it. 0xFFFFFFFF clears it. */
+uint32_t ifx_dsp_board_pc(const ifx_dsp_board *board);
+void ifx_dsp_board_set_breakpoint(ifx_dsp_board *board, uint32_t pc);
+bool ifx_dsp_board_breakpoint_hit(const ifx_dsp_board *board);
+void ifx_dsp_board_clear_breakpoint(ifx_dsp_board *board);
+
 /* One SSI frame: hand `in` to the receiver, run a sample period of
  * instructions, then clock out the two words the DAC takes per frame. A frame
  * that found the receiver still full or the transmitter still empty is counted

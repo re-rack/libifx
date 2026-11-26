@@ -25,6 +25,8 @@ typedef struct ifx_dsp_board ifx_dsp_board;
 ifx_dsp_board *ifx_dsp_board_create(void);
 void ifx_dsp_board_destroy(ifx_dsp_board *board);
 void ifx_dsp_board_reset(ifx_dsp_board *board);
+/* Power-on memory: clears the internal and external words a reset leaves. */
+void ifx_dsp_board_clear_memory(ifx_dsp_board *board);
 
 /* MCU side of the host port. `reg` is a CPU_HOST_* register of the core's
  * header; ICR, CVR and the transmit bytes are writable, ISR is read only. */
@@ -57,6 +59,9 @@ void ifx_dsp_board_run(ifx_dsp_board *board, uint32_t cycles);
  * and `right` are the DSP's own 24-bit transmit words, taken before the SSI
  * shifts them to its word length, and signed. */
 void ifx_dsp_board_frame(ifx_dsp_board *board, uint32_t in, int32_t *left, int32_t *right);
+/* The same frame with the receive register taking all 24 bits of `in`, as the
+ * recorder feeds Q23 words past the A/D's word length. */
+void ifx_dsp_board_frame_wide(ifx_dsp_board *board, uint32_t in, int32_t *left, int32_t *right);
 
 /* The two words the last frame clocked out. */
 void ifx_dsp_board_output(const ifx_dsp_board *board, int32_t *left, int32_t *right);
@@ -64,6 +69,7 @@ void ifx_dsp_board_output(const ifx_dsp_board *board, int32_t *left, int32_t *ri
 unsigned ifx_dsp_board_receive_overruns(const ifx_dsp_board *board);
 unsigned ifx_dsp_board_transmit_underruns(const ifx_dsp_board *board);
 uint64_t ifx_dsp_board_frames(const ifx_dsp_board *board);
+uint64_t ifx_dsp_board_passes(const ifx_dsp_board *board);
 uint64_t ifx_dsp_board_cycles(const ifx_dsp_board *board);
 bool ifx_dsp_board_running(const ifx_dsp_board *board);
 

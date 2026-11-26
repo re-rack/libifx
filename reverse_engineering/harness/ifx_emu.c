@@ -31,9 +31,25 @@
  * walk a 128-word window (M5 = $7f). */
 #define IFX_EMU_RING_READ 0x000Fu
 #define IFX_EMU_RING_WRITE 0x0010u
+#define IFX_EMU_RING_BASE 0x0F80u
 #define IFX_EMU_RING_SIZE 128u
 
 #define IFX_EMU_MESSAGES 256u
+
+/* C:0140 is the idle poll at the top of the main loop; it owns no host
+ * transaction. */
+#define IFX_EMU_MCU_IDLE_PC 0x0140u
+#define IFX_EMU_MCU_CALL_SENTINEL 0xFFFFu
+
+#define IFX_EMU_MAX_TABLE 0x12C8u
+#define IFX_EMU_PARAMETER_LISTS 0x320Fu
+#define IFX_EMU_PARAMETER_LIST_STRIDE 64u
+#define IFX_EMU_USER_PRESETS 0x0A81u
+#define IFX_EMU_PRESET_BYTES 55u
+#define IFX_EMU_LOAD_PRESET 2u
+#define IFX_EMU_REST_WORD 0x066666
+#define IFX_EMU_SETTLE_BLOCKS 4u
+#define IFX_EMU_SETTLE_LIMIT 1000000u
 
 /* POT3's quadrature gives up after this many transitions without the firmware
  * taking them, and each detent is one transition in the scan. */
@@ -262,6 +278,29 @@ static uint32_t dsp_cycles_for(ifx_emu *emu, uint64_t mcu_clocks) {
   return cycles;
 }
 
+static uint32_t ring_address(uint32_t base, unsigned offset) {
+  return IFX_EMU_RING_BASE + ((base - IFX_EMU_RING_BASE + offset) % IFX_EMU_RING_SIZE);
+}
+
+static void message_append(ifx_emu *emu, uint64_t frame, uint32_t read, uint32_t write) {
+  unsigned wrote = (write - read) % IFX_EMU_RING_SIZE;
+  for (unsigned offset = 0; offset + 1u < wrote; offset += 2u) {
+    if (emu->message_count == IFX_EMU_MESSAGES) {
+      memmove(&emu->messages[0], &emu->messages[1],
+              sizeof(emu->messages[0]) * (IFX_EMU_MESSAGES - 1u));
+      emu->message_count--;
+      emu->message_dropped++;
+    }
+    ifx_emu_message *message = &emu->messages[emu->message_count++];
+    message->frame_in = frame;
+    message->frame_applied = 0;
+    message->pass_applied = 0;
+    message->index = ifx_dsp_board_word(emu->dsp, DSP_SPACE_Y, ring_address(read, offset));
+    message->value = ifx_dsp_board_word(emu->dsp, DSP_SPACE_Y, ring_address(read, offset + 1u));
+    message->words = 2u;
+  }
+}
+
 static void observe_ring(ifx_emu *emu) {
   uint32_t read = ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, IFX_EMU_RING_READ);
   uint32_t write = ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, IFX_EMU_RING_WRITE);
@@ -272,29 +311,20 @@ static void observe_ring(ifx_emu *emu) {
     return;
   }
   uint64_t frame = ifx_dsp_board_frames(emu->dsp);
-  unsigned wrote = (write - emu->ring_write) % IFX_EMU_RING_SIZE;
+  uint64_t pass = ifx_dsp_board_passes(emu->dsp);
   unsigned read_out = (read - emu->ring_read) % IFX_EMU_RING_SIZE;
+  uint32_t old_write = emu->ring_write;
   emu->ring_read = read;
   emu->ring_write = write;
 
-  if (wrote != 0u) {
-    if (emu->message_count == IFX_EMU_MESSAGES) {
-      memmove(&emu->messages[0], &emu->messages[1],
-              sizeof(emu->messages[0]) * (IFX_EMU_MESSAGES - 1u));
-      emu->message_count--;
-      emu->message_dropped++;
-    }
-    emu->messages[emu->message_count].frame_in = frame;
-    emu->messages[emu->message_count].frame_applied = 0;
-    emu->messages[emu->message_count].words = wrote;
-    emu->message_count++;
-  }
+  message_append(emu, frame, old_write, write);
   if (read_out != 0u) {
     /* A block drains the ring whole, so every waiting message is applied in
      * this frame. */
     for (unsigned i = 0; i < emu->message_count; ++i) {
       if (emu->messages[i].frame_applied == 0u) {
         emu->messages[i].frame_applied = frame;
+        emu->messages[i].pass_applied = pass;
       }
     }
   }
@@ -310,7 +340,11 @@ static void frame(ifx_emu *emu) {
   emu->feed_index++;
   int32_t left = 0;
   int32_t right = 0;
-  ifx_dsp_board_frame(emu->dsp, in, &left, &right);
+  if (emu->feed.adc16) {
+    ifx_dsp_board_frame(emu->dsp, in, &left, &right);
+  } else {
+    ifx_dsp_board_frame_wide(emu->dsp, in, &left, &right);
+  }
   if (emu->out_left != NULL) {
     emu->out_left[index] = left;
   }
@@ -457,6 +491,192 @@ bool ifx_emu_ready(const ifx_emu *emu) {
 uint64_t ifx_emu_frames(const ifx_emu *emu) { return ifx_dsp_board_frames(emu->dsp); }
 
 uint64_t ifx_emu_clocks(const ifx_emu *emu) { return emu->clocks; }
+
+static uint64_t step_mcu(ifx_emu *emu) {
+  uint64_t used = ifx_mcu_board_step(emu->mcu, IFX_MCU_BOARD_CLOCKS_PER_CYCLE);
+  if (used == 0u) {
+    return 0;
+  }
+  emu->clocks += used;
+  uint32_t cycles = dsp_cycles_for(emu, used);
+  if (cycles != 0u) {
+    ifx_dsp_board_run(emu->dsp, cycles);
+  }
+  return used;
+}
+
+static bool mcu_wait_idle(ifx_emu *emu) {
+  for (unsigned i = 0; i < 100000u; ++i) {
+    if (ifx_mcu_board_pc(emu->mcu) == IFX_EMU_MCU_IDLE_PC && !ifx_mcu_board_in_isr(emu->mcu)) {
+      return true;
+    }
+    if (step_mcu(emu) == 0u) {
+      return false;
+    }
+  }
+  return false;
+}
+
+bool ifx_emu_send(ifx_emu *emu, unsigned index, unsigned value) {
+  if (emu == NULL || index >= IFX_EMU_PARAMETER_COUNT || !ifx_dsp_board_running(emu->dsp)) {
+    return false;
+  }
+  unsigned maximum = emu->eprom[IFX_EMU_MAX_TABLE + index];
+  if (maximum == 0u || value >= maximum) {
+    return false;
+  }
+  if (!mcu_wait_idle(emu)) {
+    return false;
+  }
+
+  ifx_mcu_board_cpu_state saved;
+  ifx_mcu_board_cpu_save(emu->mcu, &saved);
+  observe_ring(emu);
+  uint32_t start_write = ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, IFX_EMU_RING_WRITE);
+
+  ifx_mcu_board_set_iram(emu->mcu, (uint8_t)(saved.sp + 1u),
+                         (uint8_t)(IFX_EMU_MCU_CALL_SENTINEL & 0xFFu));
+  ifx_mcu_board_set_iram(emu->mcu, (uint8_t)(saved.sp + 2u),
+                         (uint8_t)(IFX_EMU_MCU_CALL_SENTINEL >> 8));
+  ifx_mcu_board_set_iram(emu->mcu, (uint8_t)(IFX_EMU_IRAM_VALUES + index), (uint8_t)value);
+
+  ifx_mcu_board_cpu_state call = saved;
+  call.pc = 0x0EE0u;
+  call.sp = (uint8_t)(saved.sp + 2u);
+  call.regs[1] = (uint8_t)(IFX_EMU_IRAM_VALUES + index);
+  call.regs[2] = (uint8_t)index;
+  ifx_mcu_board_cpu_restore(emu->mcu, &call);
+
+  bool returned = false;
+  for (unsigned i = 0; i < 200000u; ++i) {
+    if (ifx_mcu_board_pc(emu->mcu) == IFX_EMU_MCU_CALL_SENTINEL) {
+      returned = true;
+      break;
+    }
+    if (step_mcu(emu) == 0u) {
+      break;
+    }
+  }
+  ifx_mcu_board_cpu_restore(emu->mcu, &saved);
+  if (!returned) {
+    return false;
+  }
+
+  for (unsigned i = 0; i < 200000u; ++i) {
+    uint32_t write = ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, IFX_EMU_RING_WRITE);
+    if ((write - start_write) % IFX_EMU_RING_SIZE >= 2u) {
+      break;
+    }
+    ifx_dsp_board_run(emu->dsp, 1u);
+  }
+  uint32_t write = ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, IFX_EMU_RING_WRITE);
+  if ((write - start_write) % IFX_EMU_RING_SIZE < 2u) {
+    return false;
+  }
+  observe_ring(emu);
+  return step_mcu(emu) != 0u;
+}
+
+unsigned ifx_emu_block_phase(const ifx_emu *emu) {
+  uint32_t pointer = ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, 0x0001u);
+  return (pointer - 0x80u) & 0x1Fu;
+}
+
+bool ifx_emu_align(ifx_emu *emu) {
+  if (emu == NULL || !ifx_emu_ready(emu)) {
+    return false;
+  }
+  for (unsigned i = 0; i < 64u && ifx_emu_block_phase(emu) != 0u; ++i) {
+    ifx_emu_feed feed = {NULL, 1u, false};
+    if (!ifx_emu_audio(emu, &feed, NULL, NULL)) {
+      return false;
+    }
+  }
+  return ifx_emu_block_phase(emu) == 0u;
+}
+
+uint64_t ifx_emu_blocks(const ifx_emu *emu) { return ifx_dsp_board_passes(emu->dsp); }
+
+static const uint8_t *parameter_list(const ifx_emu *emu, unsigned config) {
+  return &emu->eprom[IFX_EMU_PARAMETER_LISTS + IFX_EMU_PARAMETER_LIST_STRIDE * config];
+}
+
+bool ifx_emu_load(ifx_emu *emu, unsigned config, const uint8_t values[IFX_EMU_PARAMETER_COUNT]) {
+  if (emu == NULL || values == NULL || config >= 6u) {
+    return false;
+  }
+  const uint8_t *list = parameter_list(emu, config);
+  bool present[IFX_EMU_PARAMETER_COUNT] = {false};
+  uint8_t preset[IFX_EMU_PRESET_BYTES] = {0};
+  preset[0] = (uint8_t)config;
+  unsigned position = 1u;
+  for (unsigned i = 0; i < IFX_EMU_PARAMETER_LIST_STRIDE && list[i] != 0u; ++i) {
+    unsigned index = list[i];
+    if (index >= IFX_EMU_PARAMETER_COUNT || position >= IFX_EMU_PRESET_BYTES) {
+      return false;
+    }
+    unsigned maximum = emu->eprom[IFX_EMU_MAX_TABLE + index];
+    if (maximum == 0u || values[index] >= maximum) {
+      return false;
+    }
+    present[index] = true;
+    preset[position++] = values[index];
+  }
+  for (unsigned index = 0; index < IFX_EMU_PARAMETER_COUNT; ++index) {
+    if (!present[index] && values[index] != 0u) {
+      return false;
+    }
+  }
+
+  uint8_t *battery = ifx_mcu_board_battery(emu->mcu);
+  uint8_t *record =
+      &battery[IFX_EMU_USER_PRESETS + IFX_EMU_PRESET_BYTES * (IFX_EMU_LOAD_PRESET - 1u)];
+  memcpy(record, preset, sizeof(preset));
+  /* A preset recall keeps the DSP's running state; a run must start from a
+   * power-on state so the wipe and initialisation really run. */
+  ifx_dsp_board_clear_memory(emu->dsp);
+  ifx_emu_reset(emu);
+  if (!ifx_emu_recall(emu, IFX_EMU_LOAD_PRESET) || ifx_emu_config(emu) != config) {
+    return false;
+  }
+  for (unsigned i = 0; i < IFX_EMU_PARAMETER_LIST_STRIDE && list[i] != 0u; ++i) {
+    if (ifx_emu_value(emu, list[i]) != values[list[i]]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool ifx_emu_settle(ifx_emu *emu, uint64_t *frames_used) {
+  if (emu == NULL || !ifx_dsp_board_running(emu->dsp)) {
+    return false;
+  }
+  uint64_t start = ifx_dsp_board_frames(emu->dsp);
+  unsigned quiet = 0;
+  for (uint64_t i = 0; i < IFX_EMU_SETTLE_LIMIT; ++i) {
+    int32_t left = 0;
+    int32_t right = 0;
+    ifx_emu_feed feed = {NULL, 1u, false};
+    if (!ifx_emu_audio(emu, &feed, &left, &right)) {
+      return false;
+    }
+    uint32_t flags = ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, 0x0000u);
+    uint32_t wipe = ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, 0x0017u);
+    bool settled = (flags & ((1u << 3) | (1u << 7) | (1u << 11))) == 0u && wipe <= 0x1000u;
+    if (settled && left == IFX_EMU_REST_WORD && right == IFX_EMU_REST_WORD) {
+      quiet++;
+    } else {
+      quiet = 0;
+    }
+    if (quiet >= IFX_EMU_SETTLE_BLOCKS * 32u) {
+      if (frames_used != NULL) {
+        *frames_used = ifx_dsp_board_frames(emu->dsp) - start;
+      }
+      return true;
+    }
+  }
+  return false;
+}
 
 void ifx_emu_turn(ifx_emu *emu, ifx_mcu_board_encoder encoder, int detents) {
   int direction = detents < 0 ? -1 : 1;

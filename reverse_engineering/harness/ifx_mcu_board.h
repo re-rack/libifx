@@ -96,6 +96,22 @@ void ifx_mcu_board_midi_handler(ifx_mcu_board *board, void (*fn)(void *user, uin
                                 void *user);
 bool ifx_mcu_board_midi_receive(ifx_mcu_board *board, uint8_t byte);
 
+/* A synthetic firmware call needs the CPU's whole register state and IRAM. */
+typedef struct {
+  uint16_t pc;
+  uint16_t dptr;
+  uint8_t acc;
+  uint8_t b;
+  uint8_t psw;
+  uint8_t sp;
+  uint8_t regs[8];
+} ifx_mcu_board_cpu_state;
+
+void ifx_mcu_board_cpu_save(const ifx_mcu_board *board, ifx_mcu_board_cpu_state *state);
+void ifx_mcu_board_cpu_restore(ifx_mcu_board *board, const ifx_mcu_board_cpu_state *state);
+void ifx_mcu_board_set_iram(ifx_mcu_board *board, uint8_t addr, uint8_t value);
+bool ifx_mcu_board_in_isr(const ifx_mcu_board *board);
+
 /* State for bring-up logs and checks. */
 uint16_t ifx_mcu_board_pc(const ifx_mcu_board *board);
 uint8_t ifx_mcu_board_iram(const ifx_mcu_board *board, uint8_t addr);

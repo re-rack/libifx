@@ -89,8 +89,10 @@ invalid (`NOT A CONFIG`).
 
 ### Presets
 
-A preset is 55 bytes: byte 0 is `0x08 | config`, then the values in the configuration's list order
-(`0x320F + 64·config`), zero-padded. Factory preset p (81–160) is at `0x2084 + 55·(p − 81)`; preset
+A preset is 55 bytes: byte 0 is the configuration, then the values in the configuration's list
+order (`0x320F + 64·config`), zero-padded. Factory records carry `0x08 | config` in byte 0, which
+the restore (`C:10F0`) masks to 0..7; recall (`C:0DED`) reads a byte of 6 or more as
+configuration 0. Factory preset p (81–160) is at `0x2084 + 55·(p − 81)`; preset
 83 STADIUM decodes to configuration 2 with REV TYPE 6 (Stadium). Factory presets per configuration:
 0: 16 (with preset 160 BYPASS, index 6), 1: 16, 2: 14, 3: 6, 4: 12, 5: 16.
 
@@ -161,7 +163,8 @@ clock and frame sync and the transmit clock are external; the DSP drives the tra
 
 **Flag word `X:$0000`:** bit 0 block parity, 1 messages pending, 2 restart request, 3 the
 configuration initialises on its next call, 4 Hush in, 5 effect muted, 6 direct on, 7 wipe pointer
-valid, 8 bulk mode, 9 reverb gate on, 10 running, 11 the configuration is called, 12 skip one call,
+valid, 8 bulk mode, 9 reverb gate on, 10 running, 11 memory wipe running (the configuration is not
+called; `P:$008A` clears it when the wipe ends), 12 skip one call,
 16 set by messages `$69`/`$6A` and read nowhere, 17 read by configurations 0 and 1.
 
 **Main loop** (`P:$0038`): bit 2 runs `P:$0069` (sets bit 11, raises ISR bit 3 for the MCU); bit
@@ -220,7 +223,10 @@ Hush in (bit 4); 10 threshold and slope; 11 release; voice handlers write the vo
 +4 level (T1), +5 pan 0–100, +6 and +7 level·T2 for left and right; 97/98 Regen L/R
 (`Y:$000F`/`Y:$0010` from T1); 42 REVERB DECAY `Y:$0000 = $4CCCCD + (v & $7F)·$004189` and 43
 RV HF DAMP `Y:$0001 = (v & $7F)·$004189` (low words of the products), each then restaging
-`Y:$0002 = Y:$0000·(1 − Y:$0001)`; 59 gate on (bit 9). The full table is in `dsp_shared.asm`
+`Y:$0002 = Y:$0000·(1 − Y:$0001)`; 59 gate on (bit 9); 35 sets one of `Y:$0018` bits 3–5 for
+values 0–2, and 44 and 55 store `v & 7` in `Y:$000A`: unless bit 3 is already set, these three
+restart the memory wipe (`X:$0017 = $FFFF`, bits 7 and 11) and reinitialise the configuration
+(bit 3). The full table is in `dsp_shared.asm`
 (`P:$053D..$07BD`).
 
 ## Configurations
@@ -252,8 +258,9 @@ copied from its image, pointers, state), otherwise it processes the Hush block `
 The firmware never sets the rate: every clock is external. A millisecond is 39 samples wherever
 the firmware converts one: voice delays `78·v` per 2 ms step, predelay `39·v`, and the buffers
 fit their manual maxima at that rate (16,320 words for 418 ms, 8,192 for 209 ms, 2 × 29,632 for
-1500 ms). In the harness, preset 84's echoes fall 196 samples apart per 5 ms DLY TIME step. The A/D's rate is CLKIN/128; 5 MHz would give 39,062.5 Hz. The oscillator's marking
-does not settle CLKIN.
+1500 ms). In the harness, preset 84's echoes fall 196 samples apart per 5 ms DLY TIME step. The
+A/D's rate is CLKIN/128; 5 MHz would give 39,062.5 Hz. The oscillator's marking does not settle
+CLKIN.
 
 ## Open
 

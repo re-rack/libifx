@@ -524,6 +524,44 @@ bool ifx_mcu_board_midi_receive(ifx_mcu_board *board, uint8_t byte) {
 
 uint16_t ifx_mcu_board_pc(const ifx_mcu_board *board) { return board->cpu.pc; }
 
+static unsigned board_register_bank(const cpu_t *cpu) { return (cpu->psw >> 3) & 0x03u; }
+
+void ifx_mcu_board_cpu_save(const ifx_mcu_board *board, ifx_mcu_board_cpu_state *state) {
+  const cpu_t *cpu = &board->cpu;
+  state->pc = cpu->pc;
+  state->dptr = cpu->dptr;
+  state->acc = cpu->acc;
+  state->b = cpu->b;
+  state->psw = cpu->psw;
+  state->sp = cpu->sp;
+  unsigned bank = board_register_bank(cpu) * 8u;
+  for (unsigned i = 0; i < 8u; ++i) {
+    state->regs[i] = cpu->iram[bank + i];
+  }
+}
+
+void ifx_mcu_board_cpu_restore(ifx_mcu_board *board, const ifx_mcu_board_cpu_state *state) {
+  cpu_t *cpu = &board->cpu;
+  cpu->pc = state->pc;
+  cpu->dptr = state->dptr;
+  cpu->acc = state->acc;
+  cpu->b = state->b;
+  cpu->psw = state->psw;
+  cpu->sp = state->sp;
+  unsigned bank = board_register_bank(cpu) * 8u;
+  for (unsigned i = 0; i < 8u; ++i) {
+    cpu->iram[bank + i] = state->regs[i];
+  }
+}
+
+void ifx_mcu_board_set_iram(ifx_mcu_board *board, uint8_t addr, uint8_t value) {
+  board->cpu.iram[addr] = value;
+}
+
+bool ifx_mcu_board_in_isr(const ifx_mcu_board *board) {
+  return board->cpu.in_isr || board->cpu.isr_depth != 0u;
+}
+
 uint8_t ifx_mcu_board_iram(const ifx_mcu_board *board, uint8_t addr) {
   return board->cpu.iram[addr];
 }

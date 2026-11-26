@@ -1,6 +1,7 @@
 #include "ifx_dsp_board.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "hatari/dsp_core.h"
 #include "hatari/dsp_cpu.h"
@@ -8,6 +9,8 @@
 struct ifx_dsp_board {
   uint64_t cycles;
   uint64_t frames;
+  uint64_t passes;
+  uint16_t last_pc;
   unsigned receive_overruns;
   unsigned transmit_underruns;
   bool host_request;
@@ -56,11 +59,19 @@ void ifx_dsp_board_reset(ifx_dsp_board *board) {
   dsp_core_reset();
   board->cycles = 0;
   board->frames = 0;
+  board->passes = 0;
+  board->last_pc = 0;
   board->receive_overruns = 0;
   board->transmit_underruns = 0;
   board->host_request = false;
   board->last_left = 0;
   board->last_right = 0;
+}
+
+void ifx_dsp_board_clear_memory(ifx_dsp_board *board) {
+  (void)board;
+  memset(dsp_core.ramint, 0, sizeof(dsp_core.ramint));
+  memset(dsp_core.ramext, 0, sizeof(dsp_core.ramext));
 }
 
 void ifx_dsp_board_host_write(ifx_dsp_board *board, unsigned reg, uint8_t value) {
@@ -100,6 +111,10 @@ void ifx_dsp_board_step(ifx_dsp_board *board) {
   if (!dsp_core.running) {
     return;
   }
+  if (dsp_core.pc == 0x0400u && board->last_pc != 0x0400u) {
+    board->passes++;
+  }
+  board->last_pc = dsp_core.pc;
   dsp56k_execute_instruction();
   board->cycles += dsp_core.instr_cycle;
 }
@@ -138,7 +153,8 @@ static int32_t ifx_dsp_board_clock_transmit(ifx_dsp_board *board) {
   return word;
 }
 
-void ifx_dsp_board_frame(ifx_dsp_board *board, uint32_t in, int32_t *left, int32_t *right) {
+static void ifx_dsp_board_frame_in(ifx_dsp_board *board, uint32_t in, bool wide, int32_t *left,
+                                   int32_t *right) {
   if (!dsp_core.running) {
     return;
   }
@@ -148,10 +164,15 @@ void ifx_dsp_board_frame(ifx_dsp_board *board, uint32_t in, int32_t *left, int32
     if ((ifx_dsp_board_ssi_status() & (1u << DSP_SSI_SR_RDF)) != 0) {
       board->receive_overruns++;
     }
-    dsp_core.ssi.received_value = in & 0xFFFFu;
+    uint16_t word_length = dsp_core.ssi.cra_word_length;
+    if (wide) {
+      dsp_core.ssi.cra_word_length = 24u;
+    }
+    dsp_core.ssi.received_value = in & (wide ? 0xFFFFFFu : 0xFFFFu);
     dsp_core_ssi_Receive_SC1(1);
     dsp_core_ssi_Receive_SC2(1);
     dsp_core_ssi_Receive_SC0();
+    dsp_core.ssi.cra_word_length = word_length;
   }
 
   /* The two halves let the core service the transmit interrupt of the first
@@ -169,6 +190,14 @@ void ifx_dsp_board_frame(ifx_dsp_board *board, uint32_t in, int32_t *left, int32
   if (right != NULL) {
     *right = r;
   }
+}
+
+void ifx_dsp_board_frame(ifx_dsp_board *board, uint32_t in, int32_t *left, int32_t *right) {
+  ifx_dsp_board_frame_in(board, in, false, left, right);
+}
+
+void ifx_dsp_board_frame_wide(ifx_dsp_board *board, uint32_t in, int32_t *left, int32_t *right) {
+  ifx_dsp_board_frame_in(board, in, true, left, right);
 }
 
 unsigned ifx_dsp_board_receive_overruns(const ifx_dsp_board *board) {
@@ -189,6 +218,8 @@ unsigned ifx_dsp_board_transmit_underruns(const ifx_dsp_board *board) {
 }
 
 uint64_t ifx_dsp_board_frames(const ifx_dsp_board *board) { return board->frames; }
+
+uint64_t ifx_dsp_board_passes(const ifx_dsp_board *board) { return board->passes; }
 
 uint64_t ifx_dsp_board_cycles(const ifx_dsp_board *board) { return board->cycles; }
 

@@ -28,6 +28,9 @@ typedef struct ifx_emu ifx_emu;
 typedef struct {
   uint64_t frame_in;
   uint64_t frame_applied;
+  uint64_t pass_applied;
+  unsigned index;
+  unsigned value;
   unsigned words;
 } ifx_emu_message;
 
@@ -54,6 +57,26 @@ const char *ifx_emu_eprom_path(const ifx_emu *emu);
 bool ifx_emu_ready(const ifx_emu *emu);
 uint64_t ifx_emu_frames(const ifx_emu *emu);
 uint64_t ifx_emu_clocks(const ifx_emu *emu);
+
+/* The MCU's send routine C:0EE0, run as a synthetic call while the DSP keeps
+ * executing without SSI frames. `index` is the parameter number, `value` the
+ * panel value. */
+bool ifx_emu_send(ifx_emu *emu, unsigned index, unsigned value);
+
+/* Frames received in the current input half, 0..31; the next frame is the
+ * first of a block when this is 0. `ifx_emu_blocks` counts P:$0400 passes. */
+unsigned ifx_emu_block_phase(const ifx_emu *emu);
+bool ifx_emu_align(ifx_emu *emu);
+uint64_t ifx_emu_blocks(const ifx_emu *emu);
+
+/* Write a user preset for `config` with `values` indexed by parameter number,
+ * recall it through the panel, and leave the panel on it. */
+bool ifx_emu_load(ifx_emu *emu, unsigned config, const uint8_t values[IFX_EMU_PARAMETER_COUNT]);
+
+/* Feed silence until the configuration is initialised, the delay memory is
+ * wiped and both outputs have stayed at the rest word for four blocks. Returns
+ * the frames used through `frames_used`. */
+bool ifx_emu_settle(ifx_emu *emu, uint64_t *frames_used);
 
 /* Panel, one detent at a time, with the time the firmware needs in between. */
 void ifx_emu_run_ms(ifx_emu *emu, unsigned ms);

@@ -124,16 +124,25 @@ harness` builds `build/harness/libifxharness.a`, `make tools` the programs below
 | `mcs51/` | mcs51_emulator (MIT) for the 80C32, with the core bugs a lockstep run against ucsim `s51` found fixed; its `README.md` lists them |
 | `ifx_dsp_board.{c,h}` | the DSP side: the core, the host interface, the SSI and the port registers |
 | `ifx_mcu_board.{c,h}` | the MCU side: battery RAM, the host port, the panel's knobs and buttons, the display |
-| `ifx_emu.{c,h}` | the coupled board: power on, recall, panel edits one detent at a time, audio in and out, the log of parameter messages |
-| `ifx_mcu_bringup.c` | `build/tools/ifx_mcu_bringup`, a command line over `ifx_emu` (its file comment lists the commands; `verify:audio`, `verify:echo` and `verify:factory` are its checks) |
+| `ifx_emu.{c,h}` | the coupled board: power on, recall, panel edits one detent at a time, a parameter sent through the MCU's own `C:0EE0` without advancing audio, block alignment, a run started at rest from any knob vector (`ifx_emu_load`, `ifx_emu_settle`), audio in and out, the log of parameter messages |
+| `ifx_mcu_bringup.c` | `build/tools/ifx_mcu_bringup`, a command line over `ifx_emu` (its file comment lists the commands; `verify:audio`, `verify:echo`, `verify:factory` and `verify:timing` are its checks) |
 | `ifx_dsp_disasm.c` | `build/tools/ifx_dsp_disasm`, the workspace's DSP disassembler |
 | `ifx_dsp_core_check.c` | `make dsp-core-check`: the vendored core's memory map |
 
 - **Schedule.** One frame is one input sample: 423 DSP instruction cycles (a 33 MHz DSP56001) and
   a fixed number of 80C32 clocks. The firmware's own timing is asynchronous; this schedule is ours.
-- **Converters.** The A/D hands the receive register 16 bits; `ifx_emu_feed.adc16 = false` hands
-  over the whole 24-bit word instead. Output is the DSP's full 24-bit transmit words, of which the
-  D/A keeps the top 16 bits.
+- **Converters.** The A/D hands the receive register 16 bits; `ifx_emu_feed.adc16 = false` puts
+  the whole 24-bit word into it instead, past the SSI's 16-bit word length, which the recorder uses.
+  Output is the DSP's full 24-bit transmit words, of which the D/A keeps the top 16 bits.
+- **Timing.** `verify:timing` checks the rules the recorder relies on, in all six configurations:
+  output trails input by exactly 64 frames, and a message sent after input frame n − 1 is drained
+  by the pass that processes the block containing frame n, at every block phase.
+- **Sending.** `ifx_emu_send` runs `C:0EE0` as a call from the MCU's idle point in its main loop
+  (`C:0140`) and restores the MCU's registers afterwards; the DSP runs alongside with its SSI
+  frames held, so audio does not advance.
+- **Starting at rest.** `ifx_emu_load` writes a user preset, clears the DSP's memory, reboots the
+  board and recalls the preset through the panel; `ifx_emu_settle` then feeds silence until the
+  wipe and initialisation are done and the output has rested on `$066666`.
 - **Battery.** Power-on starts from the battery the firmware's own FACTORY RESTORE leaves:
   `ifx_emu_battery_factory()` builds the same image `ifx_emu_factory_restore()` gets by dialling
   the panel, which `verify:factory` checks byte for byte.

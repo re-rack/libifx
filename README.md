@@ -4,17 +4,17 @@ A C17 library, `libifx`, that is to re-create the six effect configurations of t
 Intellifex LTD (1995) for use as audio plugins, bit-exact against the original firmware: for the
 same input and knob settings, the same output samples as the hardware's DSP.
 
-**Status: four of six effects.** The firmware workspace, the Ghidra project, a two-CPU harness that
+**Status: five of six effects.** The firmware workspace, the Ghidra project, a two-CPU harness that
 runs the original firmware, the library's foundation and test framework, and `ifx_delay`,
-`ifx_chorus8`, `ifx_reverb` and `ifx_chorus_reverb` with the shared Hush, mixer, ducker and regen
-limiter are in place.
+`ifx_chorus8`, `ifx_reverb`, `ifx_chorus_reverb` and `ifx_pitch` with the shared Hush, mixer,
+ducker, regen limiter, chorus, pitch and reverb network cores are in place.
 
 | Configuration | Effect | Status |
 |---|---|---|
 | Hush; Reverb | `ifx_reverb` | complete |
 | Hush; Delay; Ducker | `ifx_delay` | complete |
 | Hush; 8 Voice Chorus; Delay | `ifx_chorus8` | complete |
-| Hush; Pitch Shift; Delay | `ifx_pitch` | not started |
+| Hush; Pitch Shift; Delay | `ifx_pitch` | complete |
 | Hush; Chorus; Delay; Reverb | `ifx_chorus_reverb` | complete |
 | Hush; Pitch Shift; Delay; Reverb | `ifx_pitch_reverb` | not started |
 

@@ -51,7 +51,7 @@ An effect is **Complete** when it has a native setup path, an audio kernel, all 
 | Hush; Reverb (25–26) | `ifx_reverb` | Mixer, Hush, Reverb with 8 types, pre-delay and gate | Complete |
 | Hush; Delay; Ducker (27–29) | `ifx_delay` | Mixer, Hush, Delay (Stereo, Ping-Pong, 2-Tap), Ducker | Complete |
 | Hush; 8 Voice Chorus; Delay (30–31) | `ifx_chorus8` | Mixer, Hush, 8 chorus/delay voices | Complete |
-| Hush; Pitch Shift; Delay (32–33) | `ifx_pitch` | Mixer, Hush, 4 pitch voices with delay | Not started |
+| Hush; Pitch Shift; Delay (32–33) | `ifx_pitch` | Mixer, Hush, 4 pitch voices with delay | Complete |
 | Hush; Chorus; Delay; Reverb (23–24) | `ifx_chorus_reverb` | Mixer, Hush, 4 chorus/delay voices, Ducker, Reverb | Complete |
 | Hush; Pitch Shift; Delay; Reverb (34–35) | `ifx_pitch_reverb` | Mixer, Hush, 2 pitch voices, Delay 3, Ducker, Reverb | Not started |
 

@@ -264,5 +264,3 @@ does not settle CLKIN.
 - Configuration 4's LFO rate scaling and pointer sweep, configuration 5's grain window source
   (`Y:$1C80`) and net pitch factor, the reverb network's topology, configuration 3's 2-Tap read
   across both lines.
-- Whether the output DC offset and the 16-bit converters belong in the port (decisions for the
-  user).

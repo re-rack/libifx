@@ -14,6 +14,7 @@
 #include "ifx_front_core.h"
 #include "ifx_hush_core.h"
 #include "ifx_process.h"
+#include "ifx_wipe_core.h"
 
 #define IFX_DELAY_LINE_WORDS 0x73C0u
 
@@ -74,10 +75,7 @@ typedef struct {
   int32_t staged_regen1;
   int32_t staged_regen2;
   int32_t delay_flags; /* Y:$0018: the live delay, mute and type bits */
-  uint32_t wipe_pointer; /* X:$0017 */
-  int wipe_active;       /* X:$0000 bit 11 */
-  int init_pending;      /* X:$0000 bit 3 */
-  int skip_pass;         /* X:$0000 bit 12 */
+  ifx_wipe_core wipe;
   ifx_process_block block;
 } ifx_delay_state;
 

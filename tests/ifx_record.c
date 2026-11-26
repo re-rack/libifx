@@ -33,6 +33,7 @@ static const table_source k_tables[] = {
     {"ifx_gate_hold_table", 0x08CEu, IFX_GATE_HOLD_TABLE_WORDS},
     {"ifx_coarse_pitch_table", 0x0932u, IFX_COARSE_PITCH_TABLE_WORDS},
     {"ifx_fine_pitch_table", 0x09E7u, IFX_FINE_PITCH_TABLE_WORDS},
+    {"ifx_reverb_type_table", 0x0172u, IFX_REVERB_TYPE_COUNT * IFX_REVERB_TYPE_TABLE_WORDS},
 };
 
 #define TABLE_COUNT (sizeof k_tables / sizeof k_tables[0])
@@ -43,7 +44,6 @@ static const table_source k_tables[] = {
 #define PRESET_LAST 160u
 #define PARAMETER_LISTS 0x320Fu
 #define PARAMETER_LIST_STRIDE 64u
-#define CONFIG 3u
 
 static int add_table(ifx_fixture_writer *writer, const char *name, uint32_t *first,
                      const int32_t *words, uint32_t count) {
@@ -68,7 +68,7 @@ static int add_table(ifx_fixture_writer *writer, const char *name, uint32_t *fir
 static int record_tables(ifx_fixture_writer *writer, const ifx_emu *emu) {
   const ifx_dsp_board *dsp = ifx_emu_dsp(emu);
   uint32_t first = 0;
-  int32_t *words = malloc(IFX_COARSE_PITCH_TABLE_WORDS * sizeof *words);
+  int32_t *words = malloc(IFX_REVERB_TYPE_COUNT * IFX_REVERB_TYPE_TABLE_WORDS * sizeof *words);
   if (words == NULL) {
     return -1;
   }
@@ -128,7 +128,7 @@ static unsigned setup_vectors(const ifx_effect *effect, int32_t *vectors, unsign
     return 0;
   }
   int32_t candidate[64];
-  int32_t target[64];
+  int32_t target[64] = {0};
   for (unsigned knob = 0; knob < knobs; knob++) {
     candidate[knob] = effect->knob[knob].def;
   }
@@ -195,22 +195,22 @@ static unsigned setup_vectors(const ifx_effect *effect, int32_t *vectors, unsign
   return count;
 }
 
-/* Read one factory preset of configuration 3 as the knob table's values. */
-static int preset_values(const ifx_effect *effect, const char *eprom, unsigned preset,
-                         int32_t *values, uint8_t bytes[IFX_EMU_PARAMETER_COUNT]) {
+/* Read one factory preset of the effect's configuration as the knob table's values. */
+static int preset_values(const ifx_effect *effect, unsigned config, const char *eprom,
+                         unsigned preset, int32_t *values, uint8_t bytes[IFX_EMU_PARAMETER_COUNT]) {
   FILE *file = fopen(eprom, "rb");
   if (file == NULL) {
     return -1;
   }
   uint8_t list[PARAMETER_LIST_STRIDE];
   uint8_t record[PRESET_BYTES];
-  int ok = fseek(file, (long)(PARAMETER_LISTS + PARAMETER_LIST_STRIDE * CONFIG), SEEK_SET) == 0 &&
+  int ok = fseek(file, (long)(PARAMETER_LISTS + PARAMETER_LIST_STRIDE * config), SEEK_SET) == 0 &&
            fread(list, 1, sizeof list, file) == sizeof list;
   ok = ok &&
        fseek(file, (long)(PRESET_BASE + PRESET_BYTES * (preset - PRESET_FIRST)), SEEK_SET) == 0 &&
        fread(record, 1, sizeof record, file) == sizeof record;
   fclose(file);
-  if (!ok || (record[0] & 7u) != CONFIG) {
+  if (!ok || (record[0] & 7u) != config) {
     return -1;
   }
   memset(bytes, 0, IFX_EMU_PARAMETER_COUNT);
@@ -301,7 +301,7 @@ static int record_effect(const ifx_firmware_ops *ops, const char *path) {
   for (unsigned preset = PRESET_FIRST; preset <= PRESET_LAST; preset++) {
     uint8_t bytes[IFX_EMU_PARAMETER_COUNT];
     int32_t preset_knobs[64];
-    if (preset_values(effect, eprom, preset, preset_knobs, bytes) != 0) {
+    if (preset_values(effect, ops->config, eprom, preset, preset_knobs, bytes) != 0) {
       continue;
     }
     if (ops->load(firmware, bytes) != 0) {
@@ -426,6 +426,7 @@ fail:
 int main(int argc, char **argv) {
   if (argc == 2 && strcmp(argv[1], "--list") == 0) {
     puts("delay");
+    puts("reverb");
     puts("tables");
     return 0;
   }
@@ -436,6 +437,11 @@ int main(int argc, char **argv) {
   if (strcmp(argv[1], "tables") == 0) {
     ifx_emu *emu = ifx_emu_create(NULL);
     if (emu == NULL) {
+      return 1;
+    }
+    uint8_t values[IFX_EMU_PARAMETER_COUNT] = {0};
+    if (!ifx_emu_load(emu, 2, values) || !ifx_emu_settle(emu, NULL)) {
+      ifx_emu_destroy(emu);
       return 1;
     }
     ifx_fixture_writer writer;
@@ -461,9 +467,11 @@ int main(int argc, char **argv) {
            argv[2]);
     return 0;
   }
-  const ifx_firmware_ops *firmware_ops = ifx_firmware_delay();
-  if (strcmp(argv[1], firmware_ops->effect->name) == 0) {
-    return record_effect(firmware_ops, argv[2]) == 0 ? 0 : 1;
+  const ifx_firmware_ops *firmware_ops[] = {ifx_firmware_delay(), ifx_firmware_reverb()};
+  for (unsigned i = 0; i < sizeof firmware_ops / sizeof firmware_ops[0]; i++) {
+    if (strcmp(argv[1], firmware_ops[i]->effect->name) == 0) {
+      return record_effect(firmware_ops[i], argv[2]) == 0 ? 0 : 1;
+    }
   }
   fprintf(stderr, "%s: nothing to record is called %s\n", argv[0], argv[1]);
   return 2;

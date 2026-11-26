@@ -7,6 +7,7 @@
 
 typedef struct {
   const ifx_effect *effect;
+  unsigned config; /* the MCU configuration index the fixture records */
   void *(*open)(void);
   void (*close)(void *instance);
   int (*set_knob)(void *instance, unsigned knob, int value);
@@ -17,5 +18,6 @@ typedef struct {
 } ifx_firmware_ops;
 
 const ifx_firmware_ops *ifx_firmware_delay(void);
+const ifx_firmware_ops *ifx_firmware_reverb(void);
 
 #endif /* IFX_FIRMWARE_H */

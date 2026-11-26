@@ -5,8 +5,15 @@
 
 #include <stdint.h>
 
-/* The firmware's constant DC offset on both outputs, which a host removes. */
+#include "ifx_dsp_math.h"
+
+/* The firmware's constant DC offset on both outputs. */
 #define IFX_MIXER_OFFSET 0x066666
+
+/* The library's output word: the mixer's word without the offset, saturated. */
+static inline int32_t ifx_mixer_core_output(int32_t word) {
+  return ifx_store24(ifx_word_acc(word) - ifx_word_acc(IFX_MIXER_OFFSET));
+}
 
 void ifx_mixer_core_process(const int32_t wet_left[32], const int32_t wet_right[32],
                             const int32_t hush[32], int32_t wet_level, int32_t direct_left,

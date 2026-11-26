@@ -283,6 +283,37 @@ copied from its image, pointers, state), otherwise it processes the Hush block `
   the 23 values are DELAY LVL 48, L/R DIR 46, DIRECT HUSH PRE, HUSH IN, EXP THRESH 8, REL RATE 5,
   DELAY active, MUTE TYPE PRE, LEVEL 1/2 58, PAN 1 0, PAN 2 100, TIME 1 75, TIME 2 50, REGEN 1 46,
   REGEN 2 52, D TYPE Stereo, DL HF DAMP 12, DUCKER on, SENSITIVITY 20, ATTENUATION 19, RELEASE 8.
+- **Configuration 2 parameters** at `0x328F`: REVERB LVL 50, L/R DIR 3/4, DIRECT HUSH 5, HUSH I/O
+  9, EXP THRESH 10, REL RATE 11, REVERB DECAY 42, RV HF DAMP 43, LOW FREQ 54, REV TYPE 55, DIRIN PAN
+  56, PREDELAY L/R 57/58, GATE 59, GATE DECAY 60, GATE THRESH 61, HOLD TIME 62. Windows: decay and
+  damping 0..99, LOW FREQ 0..99, REV TYPE 0..7, DIRIN PAN 0..100, predelay 0..209 ms, gate decay
+  0..31, gate threshold 0..24, HOLD TIME 0..99 (30 to 13,428 blocks); the rest as configuration 3.
+- **Configuration 2 init** (`cfg2 P:$00A2`): bit 3 clears, `Y:$000B/$000C/$002C` zero, `Y:$000D =
+  $2000`, and 48 words from `P:$0172 + 48·type` (type at `Y:$000A`) copy to `X:$40..$6F`. The eight
+  tables hold 16 pointer pairs (32 words) and 8 pointer/coefficient pairs. REV TYPE message 55 stores
+  `v & 7` in `Y:$000A`; unless bit 3 is already set it restarts the wipe.
+- **Configuration 2 reverb** (`P:$00D6..$0171`): a one-pole lowpass `0.98·lp + 0.02·x`, then the
+  write word `x + lowpass·Y:$000E`; `Y:$000E` is `low(2·v·$A3D7) + $800000` wrapped, i.e. LOW FREQ
+  maps 0..99 to about −1..+1. The write pointer `Y:$000D` walks the 8,192-word predelay ring
+  `$2000..$3FFF` (`M=$1FFF`); the taps read from the pointer before the block's 32 writes, subtract
+  `39·v` samples for L/R (`M=$1FFF`), and pan with `T1[v]`/`T1[100−v]` into `Y:$40..$5F` and
+  `Y:$60..$7F`. `$0139` runs four two-word allpass lines per channel over a block; `$0149` sums four
+  delay taps at `$400000` each and `$015A` runs four damped allpass lines. Four such tap/allpass
+  stages alternate left/right over `X:$40..$5F`; the per-type pointers advance 32 words a block in
+  `$015A` (and 32 in `$0139`). The network uses the external array `$8000..$FFFA` (`M=$7FBA`).
+- **Configuration 2 gate and feedback**: `Y:$0003` GATE DECAY (table `P:$08AE`), `Y:$0004` GATE
+  THRESH (`P:$085E`), `Y:$0005` HOLD TIME (`P:$08CE`). Gate on compares the DC-blocker level with
+  `Y:$0004`; at or above it sets `Y:$000B = Y:$0002` and `Y:$000C = Y:$0005`, below it counts hold
+  down and then `Y:$000B = mpyr(Y:$000B, Y:$0003)`. Gate off sets `Y:$000B = Y:$0002` every block.
+  REVERB DECAY message 42 makes `Y:$0000 = $4CCCCD + low(v·$004189)`; RV HF DAMP message 43 makes
+  `Y:$0001 = low(v·$004189)`; each restages `Y:$0002 = round(Y:$0000 − Y:$0001·Y:$0000)`.
+  Before the damped allpasses, if `Y:$000B + Y:$0001` overflows, `P:$0111` stores
+  `Y:$000B = $7FFCB9 − Y:$0001`. No DECAY/DAMP pair's `Y:$0002` reaches it (the most is `$7FB0BB`);
+  only raising RV HF DAMP while the gate holds a gain staged with less damping does.
+- **Configuration 2 defaults**: factory preset 83 (`STADIUM`) at EPROM `0x2084 + 55·2`; the 18
+  values are REVERB LVL 46, L/R DIR 46, DIRECT HUSH PRE, HUSH IN, EXP THRESH 8, REL RATE 5,
+  REVERB DECAY 81, RV HF DAMP 42, LOW FREQ 50, REV TYPE Stadium (6), DIRIN PAN 49, PREDELAY L 157,
+  PREDELAY R 209, GATE off, GATE DECAY 0, GATE THRESH 0, HOLD TIME 0.
 
 ## Sample rate
 
@@ -300,4 +331,4 @@ CLKIN.
 - Modulo addressing with `N = $2000` on `M = $1FFF` (configurations 4 and 5): the DSP56000's
   multiple wrap-around rule must hold in the harness.
 - Configuration 4's LFO rate scaling and pointer sweep, configuration 5's grain window source
-  (`Y:$1C80`) and net pitch factor, the reverb network's topology.
+  (`Y:$1C80`) and net pitch factor, the reverb network of configurations 0 and 1.

@@ -15,7 +15,8 @@ firmware's bytes. `make ghidra-prepare` builds the workspace locally into gitign
 |---|---|
 | `firmware/` | the records and `manifest.csv` (below) |
 | `asm/mcu.asm` | the 8051 program, `C:0000..4AEF`: decoded instructions where the recursive descent reaches, `db` lines with ASCII elsewhere |
-| `asm/dsp_<record>.asm` | each DSP record disassembled at its load address |
+| `asm/dsp_boot.asm`, `asm/dsp_shared.asm` | the bootstrap and shared records disassembled at their load addresses |
+| `asm/dsp_cfg<N>.asm` | configuration N's runtime: bootstrap `P:$0000..$009F`, the configuration and the shared code |
 | `memory_map.csv` | one row per record, image header and fill: region, processor, programs, kind, EPROM offset, load address, size |
 | `entrypoints.csv` | vectors, handlers and cross-image entries with the evidence for each |
 | `callgraph/direct_calls.csv` | every direct call site and its target |

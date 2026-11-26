@@ -13,7 +13,7 @@ shared Hush, mixer, ducker and regen limiter are in place.
 | Hush; Reverb | `ifx_reverb` | not started |
 | Hush; Delay; Ducker | `ifx_delay` | complete |
 | Hush; 8 Voice Chorus; Delay | `ifx_chorus8` | not started |
-| Hush; Pitch Shift; Delay | `ifx_pitch` | not started |
+| Hush; Pitch Shift; Delay | `ifx_pitch` | complete |
 | Hush; Chorus; Delay; Reverb | `ifx_chorus_reverb` | not started |
 | Hush; Pitch Shift; Delay; Reverb | `ifx_pitch_reverb` | not started |
 

@@ -8,8 +8,9 @@ has not settled; the harness settles it.
 
 ## Current status
 
-Configuration 3 (`ifx_delay`, Hush; Delay; Ducker) is implemented with its fixture. The workspace
-splits and disassembles the EPROM and builds the Ghidra project, and the harness runs the original
+Configurations 2–5 (`ifx_reverb`, `ifx_delay`, `ifx_chorus8`, `ifx_pitch`) are implemented with
+their fixtures. The workspace splits and disassembles the EPROM and builds the Ghidra project, and
+the harness runs the original
 firmware on both CPUs. The MCU's parameter model, the MCU–DSP protocol, the DSP's shared code and
 the structure of every configuration are mapped; the other five configurations' kernels are still
 to be settled in the harness.
@@ -309,6 +310,38 @@ copied from its image, pointers, state), otherwise it processes the Hush block `
   49 values are CHORUS LVL 44, L/R DIR 42, DIRECT HUSH PRE, REGEN L/R 0/3, HUSH IN, EXP THRESH 8,
   REL RATE 5, then voices 1–8: level 58/58/58/58/58/58/46/34, pan 0/0/0/0/100/100/100/100,
   delay 5/20/30/60/30/120/140/160, depth 41/41/36/39/40/43/37/32 and rate 25/21/5/73/38/42/10/35.
+- **Configuration 5 parameters**: 29 values at EPROM `0x320F + 64·5`, in preset order: PSHIFT LVL
+  (53), L/R DIR LVL (3/4), DIRECT HUSH (5), REGEN L/R (97/98), HUSH I/O (9), EXP THRESH (10), REL
+  RATE (11), then four voice blocks of PITCH, FINE, LEVEL, PAN and DELAY (46/47/63/15/64,
+  48/49/65/20/66, 101/102/67/68/69, 103/104/72/73/74). Windows are 59 for every level, 2 for the
+  switches, 25/10 for Hush threshold/release, 181/41 for pitch/fine, 101 for pan and 210 for a
+  voice delay; a delay handler stores `78·(v & $FF)` samples.
+- **Configuration 5 init and block**: `P:$00A0` jumps to `$0192` when `X:$0000` bit 3 is set; init
+  copies `P:$01D3`'s 16-word 16-tap table to `Y:$30..$3F`, `P:$01E3`'s six-word 6-tap table to
+  `X:$38..$3D`, `P:$01E9`'s 28-word voice-phase table to `Y:$1CC0..$1CDF`, clears `X:$40..$7F`,
+  builds the 256-word crossfade window at `Y:$1800..$18FF`, and sets `Y:$0011/$0012/$0013/$0015/
+  $0016 = $40/$2000/$1C00/$8000/$C000`. The block at `P:$00A2` runs the regeneration limiter over
+  the four voices, sums the Hush block and the regenerated line outputs into `X:$40..$7F`, filters
+  that through the 16-tap table into the 128-word `Y:$1C00` ring, then through the 6-tap table into
+  the `Y:$2000` 8,192-word ring, writing the raw centre word and the filtered word per input sample
+  (two words per sample). Four voices each run two grains: the grain sweep builds 32 interpolated
+  pointers from a 13-bit integer phase plus a 24-bit fraction, at `rate = product << 5` per sample,
+  and reads the `$2000` ring at `$2000 + phase`; the two grain outputs land in the 32-word rings
+  `Y:$1C80` and `Y:$1CA0`. The crossfade window source is `Y:$1800`, indexed by the distance between
+  the `Y:$0012` write pointer and the second grain's integer phase folded at `$2000`; each voice's
+  crossfaded block is added into the `$8000`/`$C000` 16,384-word lines at its delay, and the oldest
+  32 words of both lines become the output block `Y:$0F40..$0F7F`.
+- **Configuration 5 pitch factors**: the coarse table `P:$0932` is `2^(k/60 − 4)` and the fine
+  table `P:$09E7` is `0.5·2^((k − 20)/1200)`; the voice product word is their rounded Q23 product
+  (so a fine of 20 is the neutral 0.5). The net pitch factor is `2^((PITCH − 120)/60 +
+  (FINE − 20)/1200)`, eight times the product word: PITCH 0/60/120/180 give 0.25/0.5/1/2.
+- **Configuration 5 default**: factory preset 82 (`LIQUID SHIFT`) at EPROM `0x2084 + 55·1`; values
+  PSHIFT LVL 46, L/R DIR 46/46, DIRECT HUSH PRE, REGEN L/R 0/0, HUSH in, EXP THRESH 8, REL RATE 5,
+  voice 1 pitch/fine/level/pan/delay 85/20/58/25/0, voice 2 145/20/58/75/0, voice 3 105/20/58/25/0,
+  voice 4 145/36/58/75/0.
+- **Configuration 1 pitch core**: the same voice handlers and grain sweep with a 12-bit phase and a
+  rate shift of 4, one 16-tap filter into the 4,096-word `Y:$2000` ring (no 6-tap stage), grain
+  scratch `Y:$1180`/`Y:$11A0`, voice state `Y:$11C0`, window `Y:$1000`, and lines `$4000`/`$8000`.
 - **Configuration 2 parameters** at `0x328F`: REVERB LVL 50, L/R DIR 3/4, DIRECT HUSH 5, HUSH I/O
   9, EXP THRESH 10, REL RATE 11, REVERB DECAY 42, RV HF DAMP 43, LOW FREQ 54, REV TYPE 55, DIRIN PAN
   56, PREDELAY L/R 57/58, GATE 59, GATE DECAY 60, GATE THRESH 61, HOLD TIME 62. Windows: decay and
@@ -354,7 +387,4 @@ CLKIN.
 
 - The scale conventions: configuration tables hold words such as `$008000` that read like Q1.16,
   next to Q1.23 constants elsewhere.
-- Modulo addressing with `N = $2000` on `M = $1FFF` (configurations 4 and 5): the DSP56000's
-  multiple wrap-around rule must hold in the harness.
-- Configuration 5's grain window source (`Y:$1C80`) and net pitch factor, the reverb network of
-  configurations 0 and 1.
+- The reverb network of configurations 0 and 1.

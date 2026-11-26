@@ -9,8 +9,9 @@ has not settled; the harness settles it.
 ## Current status
 
 No effect is implemented. The workspace splits and disassembles the EPROM and builds the Ghidra
-project. The MCU's parameter model, the MCU–DSP protocol, the DSP's shared code and the structure
-of every configuration are mapped; most kernel arithmetic still needs the harness.
+project, and the harness runs the original firmware on both CPUs. The MCU's parameter model, the
+MCU–DSP protocol, the DSP's shared code and the structure of every configuration are mapped; most
+kernel arithmetic is still to be settled in the harness.
 
 ## Hardware
 
@@ -110,6 +111,8 @@ A preset is 55 bytes: byte 0 is `0x08 | config`, then the values in the configur
   The DSP queues the words in its message ring and runs them once processing starts.
 - **Preset recall** (`C:0384`): `$2C`, bulk parameters, `$32`, the configuration image if it
   changed, `$32`, latches, `$30`. No reboot.
+- **Factory restore** lives on preset 160's page list: its ENTER CODE parameter set to 249, then
+  STORE. It writes the battery tables and shows `ERRORS 0`.
 
 ## DSP56001 runtime
 
@@ -184,7 +187,10 @@ cross their rings' halves, so each pass reads 32 input words and writes 64 outpu
 6. **Mixer** (`P:$0050`, 32×): `L = 8·(wet·C_L + dirL·H) + 0.05`, `R = 8·(dirR·H + wet·C_R) +
    0.05`, limited on the store, with C the configuration's pair, H the Hush block, wet `X:$0013`
    (0 while bit 5 is set) and dirL/dirR `X:$0014`/`X:$0015` (0 while bit 6 is clear). The 0.05 is
-   a constant DC offset on both outputs (`$066666`).
+   a constant DC offset on both outputs: silence comes out as `$066666` in the harness.
+
+Output trails input by 64 frames, the receive and transmit rings' halves; a parameter message
+takes effect at the start of the next block.
 
 ### Messages
 
@@ -246,7 +252,7 @@ copied from its image, pointers, state), otherwise it processes the Hush block `
 The firmware never sets the rate: every clock is external. A millisecond is 39 samples wherever
 the firmware converts one: voice delays `78·v` per 2 ms step, predelay `39·v`, and the buffers
 fit their manual maxima at that rate (16,320 words for 418 ms, 8,192 for 209 ms, 2 × 29,632 for
-1500 ms). The A/D's rate is CLKIN/128; 5 MHz would give 39,062.5 Hz. The oscillator's marking
+1500 ms). In the harness, preset 84's echoes fall 196 samples apart per 5 ms DLY TIME step. The A/D's rate is CLKIN/128; 5 MHz would give 39,062.5 Hz. The oscillator's marking
 does not settle CLKIN.
 
 ## Open
@@ -259,4 +265,4 @@ does not settle CLKIN.
   (`Y:$1C80`) and net pitch factor, the reverb network's topology, configuration 3's 2-Tap read
   across both lines.
 - Whether the output DC offset and the 16-bit converters belong in the port (decisions for the
-  user once the harness confirms them).
+  user).

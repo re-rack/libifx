@@ -111,8 +111,8 @@ static char board_glyph(const ifx_mcu_board *board) {
   return '?';
 }
 
-/* The scan enables one digit at a time: X:8006 carries cells 0-7 with bit 7
- * leftmost, X:8004 continues at cell 8. */
+/* The scan enables one cell at a time: X:8004 drives cells 8-15 and X:8006
+ * cells 0-7, each from bit 7 down. */
 static void board_select_digit(ifx_mcu_board *board, unsigned half, uint8_t value) {
   if (board->digit[half] == value) {
     return;
@@ -470,13 +470,17 @@ static void battery_copy(ifx_mcu_board *board, uint16_t dest, uint16_t src, uint
 }
 
 void ifx_mcu_board_battery_factory(ifx_mcu_board *board) {
-  /* The firmware's own restore (C:10AF) copies these five tables out of the EPROM
-   * and stamps the battery as valid; the harness reproduces it byte for byte so a
-   * wired-up board reaches the same state a factory unit powers up in. */
+  /* The firmware's FACTORY RESTORE (C:108A, code 249): the program map filled
+   * with its own numbering, the preset records, then the valid signature. */
   ifx_mcu_board_battery_erase(board);
-  battery_copy(board, 0x0001u, 0x1BD4u, 128u);
-  battery_copy(board, 0x0081u, 0x2064u, 2560u);
+  for (unsigned slot = 0; slot < 128u; ++slot) {
+    board->battery[0x0001u + slot] = (uint8_t)slot;
+  }
+  battery_copy(board, 0x1BEAu, 0x1BCFu, 5u);
   for (unsigned preset = 0; preset < 80u; ++preset) {
+    /* The restore's copy routine reloads its source pointer on every pass of the
+     * outer loop, so all 80 preset headers come from the first 32 bytes. */
+    battery_copy(board, (uint16_t)(0x0081u + preset * 32u), 0x2064u, 32u);
     uint16_t dest = (uint16_t)(0x0A81u + preset * 55u);
     uint16_t src = (uint16_t)(0x2084u + preset * 55u);
     battery_copy(board, dest, src, 55u);
@@ -484,7 +488,6 @@ void ifx_mcu_board_battery_factory(ifx_mcu_board *board) {
     board->battery[dest] = config < 6u ? config : 0u;
   }
   battery_copy(board, 0x1BEFu, 0x1C54u, 1040u);
-  battery_copy(board, 0x1BEAu, 0x1BCAu, 5u);
   board->battery[0x1BE9u] = 0x17u;
 }
 

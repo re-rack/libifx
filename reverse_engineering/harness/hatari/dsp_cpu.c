@@ -750,6 +750,12 @@ void dsp56k_write_memory(int space, uint32_t address, uint32_t value)
 	write_memory(space, (uint16_t)address, value);
 }
 
+/* The same view, for a host that has to check what the map holds. */
+uint32_t dsp56k_read_memory(int space, uint32_t address)
+{
+	return read_memory(space, (uint16_t)address);
+}
+
 void dsp56k_execute_instruction(void)
 {
 	uint32_t value;
@@ -1278,9 +1284,9 @@ static uint32_t read_memory(int space, uint16_t address)
 		}
 	}
 
-	/* Peripheral address ? Only X space carries the on-chip peripherals; the
-	 * same addresses in Y space are external RAM, as the Intellifex firmware
-	 * relies on when it wipes Y memory. */
+	/* Peripheral address ? X and Y space each answer from their own peripheral
+	 * array here, but only X has the side effects; P space has no peripherals,
+	 * so read_memory_p() sends those words to the external RAM. */
 	if (address >= 0xffc0) {
 		value = dsp_core.periph[space][address-0xffc0] & BITMASK(24);
 		if (space == DSP_SPACE_X) {
@@ -1314,7 +1320,8 @@ static void write_memory_raw(int space, uint16_t address, uint32_t value)
 {
 	value &= BITMASK(24);
 
-	/* Peripheral address ? See read_memory(): only X space is a peripheral. */
+	/* Peripheral address ? See read_memory(): X and Y answer from their own
+	 * peripheral array, P space falls through to the external RAM. */
 	if (address >= 0xffc0) {
 		if (space == DSP_SPACE_X) {
 			switch(address-0xffc0) {

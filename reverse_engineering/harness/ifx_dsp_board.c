@@ -11,8 +11,8 @@ struct ifx_dsp_board {
   unsigned receive_overruns;
   unsigned transmit_underruns;
   bool host_request;
-  int16_t last_left;
-  int16_t last_right;
+  int32_t last_left;
+  int32_t last_right;
 };
 
 /* The core calls its host interrupt through a bare function pointer. */
@@ -113,35 +113,53 @@ void ifx_dsp_board_run(ifx_dsp_board *board, uint32_t cycles) {
   }
 }
 
-static int16_t ifx_dsp_board_clock_transmit(ifx_dsp_board *board) {
+/* The transmit word the DSP wrote, before the SSI shifts it to its word length,
+ * so a 16-bit frame still shows the bits below the converter's resolution. */
+static int32_t ifx_dsp_board_transmit_word(void) {
   if (!dsp_core.running) {
     return 0;
   }
-  if ((ifx_dsp_board_ssi_status() & (1u << DSP_SSI_SR_TDE)) == 0) {
-    board->transmit_underruns++;
-  }
-  dsp_core_ssi_Receive_SCK();
-  return (int16_t)(dsp_core.ssi.transmit_value & 0xffffu);
+  bool enabled = dsp_core.ssi.crb_te && !dsp_core.ssi.waitFrameTX;
+  uint32_t word = enabled ? (dsp_core.ssi.TX & 0xFFFFFFu) : 0u;
+  return (int32_t)(word ^ 0x800000u) - (int32_t)0x800000;
 }
 
-void ifx_dsp_board_frame(ifx_dsp_board *board, int16_t in, int16_t *left, int16_t *right) {
+static int32_t ifx_dsp_board_clock_transmit(ifx_dsp_board *board) {
+  if (!dsp_core.running) {
+    return 0;
+  }
+  /* TDE set: the register is empty, so this shift repeats the previous word. */
+  if (dsp_core.ssi.crb_te && !dsp_core.ssi.waitFrameTX &&
+      (ifx_dsp_board_ssi_status() & (1u << DSP_SSI_SR_TDE)) != 0) {
+    board->transmit_underruns++;
+  }
+  int32_t word = ifx_dsp_board_transmit_word();
+  dsp_core_ssi_Receive_SCK();
+  return word;
+}
+
+void ifx_dsp_board_frame(ifx_dsp_board *board, uint32_t in, int32_t *left, int32_t *right) {
   if (!dsp_core.running) {
     return;
   }
-  if ((ifx_dsp_board_ssi_status() & (1u << DSP_SSI_SR_RDF)) != 0) {
-    board->receive_overruns++;
+  if (dsp_core.ssi.crb_re) {
+    /* RDF still set: the firmware did not read the previous word before this
+     * one arrived. */
+    if ((ifx_dsp_board_ssi_status() & (1u << DSP_SSI_SR_RDF)) != 0) {
+      board->receive_overruns++;
+    }
+    dsp_core.ssi.received_value = in & 0xFFFFu;
+    dsp_core_ssi_Receive_SC1(1);
+    dsp_core_ssi_Receive_SC2(1);
+    dsp_core_ssi_Receive_SC0();
   }
-  dsp_core.ssi.received_value = (uint32_t)(uint16_t)in;
-  dsp_core_ssi_Receive_SC1(1);
-  dsp_core_ssi_Receive_SC2(1);
-  dsp_core_ssi_Receive_SC0();
 
   /* The two halves let the core service the transmit interrupt of the first
    * word before the second one clocks out. */
   ifx_dsp_board_run(board, IFX_DSP_BOARD_FRAME_CYCLES / 2u);
-  int16_t l = ifx_dsp_board_clock_transmit(board);
+  int32_t l = ifx_dsp_board_clock_transmit(board);
   ifx_dsp_board_run(board, IFX_DSP_BOARD_FRAME_CYCLES - IFX_DSP_BOARD_FRAME_CYCLES / 2u);
-  int16_t r = ifx_dsp_board_clock_transmit(board);
+  int32_t r = ifx_dsp_board_clock_transmit(board);
   board->last_left = l;
   board->last_right = r;
   board->frames++;
@@ -155,6 +173,15 @@ void ifx_dsp_board_frame(ifx_dsp_board *board, int16_t in, int16_t *left, int16_
 
 unsigned ifx_dsp_board_receive_overruns(const ifx_dsp_board *board) {
   return board->receive_overruns;
+}
+
+void ifx_dsp_board_output(const ifx_dsp_board *board, int32_t *left, int32_t *right) {
+  if (left != NULL) {
+    *left = board->last_left;
+  }
+  if (right != NULL) {
+    *right = board->last_right;
+  }
 }
 
 unsigned ifx_dsp_board_transmit_underruns(const ifx_dsp_board *board) {

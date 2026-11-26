@@ -3,13 +3,15 @@
 #   make harness          build/harness/libifxharness.a: the DSP56001 core and board, the
 #                         80C51 core and board
 #   make tools            build/tools/ifx_dsp_disasm, the DSP disassembler that replaces
-#                         dsp56300-disasm, and the bring-up programs
+#                         dsp56300-disasm, the bring-up programs and the DSP core's memory-map
+#                         check
 #   make ghidra-prepare   verify the EPROM, split it, disassemble both processors, and build the
 #                         Ghidra project (see reverse_engineering/README.md)
 #   make ghidra-clean     remove what ghidra-prepare generates, but not the Ghidra project and
 #                         its exports
 #   make format           apply clang-format to the harness sources, but not to the vendored
 #                         cpu cores under harness/hatari and harness/mcs51
+#   make dsp-core-check   run the vendored DSP core's memory-map check
 #   make static-check     clang-format check, cppcheck, gcc and clang warnings and analyzers on
 #                         the harness sources, then ruff on the workspace scripts
 #   make clean            remove build/
@@ -49,7 +51,7 @@ HARNESS_INCLUDES := $(addprefix -I,$(HARNESS_DIRS))
 
 LIBRARY := $(BUILD_HARNESS)/libifxharness.a
 # Programs in the harness directory own a main() and are linked, not archived.
-TOOL_PROGRAMS := ifx_dsp_disasm ifx_mcu_bringup
+TOOL_PROGRAMS := ifx_dsp_disasm ifx_mcu_bringup ifx_dsp_core_check
 TOOL_SOURCES := $(addprefix $(HARNESS)/,$(addsuffix .c,$(TOOL_PROGRAMS)))
 TOOLS := $(addprefix $(BUILD_TOOLS)/,$(TOOL_PROGRAMS))
 DISASSEMBLER_TOOL := $(BUILD_TOOLS)/ifx_dsp_disasm
@@ -89,6 +91,9 @@ ghidra-clean:
 
 format:
 	@$(CLANG_FORMAT) -i $(FORMAT_FILES)
+
+dsp-core-check: $(BUILD_TOOLS)/ifx_dsp_core_check
+	@$(BUILD_TOOLS)/ifx_dsp_core_check
 
 static-check: static-format static-cppcheck static-clang static-gcc static-ruff
 
@@ -135,7 +140,7 @@ $(LIBRARY): $(HARNESS_OBJECTS)
 
 $(BUILD_TOOLS)/%: $(BUILD_HARNESS)/%.o $(LIBRARY)
 	@mkdir -p $(@D)
-	$(CC) $(STRICT) $(CFLAGS) $(LDFLAGS) -o $@ $^
+	$(CC) $(STRICT) $(CFLAGS) $(LDFLAGS) -o $@ $^ -lm
 
 $(BUILD_HARNESS)/%.o: $(HARNESS)/%.c Makefile
 	@mkdir -p $(@D)
@@ -143,5 +148,5 @@ $(BUILD_HARNESS)/%.o: $(HARNESS)/%.c Makefile
 
 -include $(DEPS)
 
-.PHONY: harness tools ghidra-prepare ghidra-clean format static-check static-ruff \
-        static-format static-cppcheck static-clang static-gcc clean
+.PHONY: harness tools ghidra-prepare ghidra-clean format dsp-core-check static-check \
+        static-ruff static-format static-cppcheck static-clang static-gcc clean

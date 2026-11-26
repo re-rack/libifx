@@ -35,11 +35,12 @@ The scripts find both by SHA-256, under any name, in the project root or `revers
 | `reverse_engineering/build_workspace.py` | Verify the inputs, split the EPROM into records, disassemble both processors and write the analysis artifacts |
 | `reverse_engineering/mcs51_disasm.py` | The 8051 recursive-descent disassembler the workspace uses |
 | `reverse_engineering/build_ghidra.py` | Build and export the Ghidra project with PyGhidra only |
+| `reverse_engineering/harness/` | The two-CPU harness the recorder drives: the vendored cores, the DSP and MCU boards, the coupled board `ifx_emu`, the bring-up CLI and the DSP disassembler (`reverse_engineering/README.md`, "The harness") |
 | `reverse_engineering/EFFECTS.md` | Verified firmware map and reusable findings for the native library |
 | `Makefile` | Every build, check and tool target; all output goes to `build/` or the workspace's untracked paths |
 | `README.md` | The project's front page |
 
-`src/` (library code only), `tests/` (recorder, checker, fixtures) and `reverse_engineering/harness/` (emulator plumbing) follow the rules below once they exist.
+`src/` (library code only) and `tests/` (recorder, checker, fixtures) follow the rules below once they exist.
 
 ## Native effect progress
 
@@ -54,7 +55,7 @@ An effect is **Complete** when it has a native setup path, an audio kernel, all 
 | Hush; Chorus; Delay; Reverb (23–24) | `ifx_chorus_reverb` | Mixer, Hush, 4 chorus/delay voices, Ducker, Reverb | Not started |
 | Hush; Pitch Shift; Delay; Reverb (34–35) | `ifx_pitch_reverb` | Mixer, Hush, 2 pitch voices, Delay 3, Ducker, Reverb | Not started |
 
-Work order: workspace and docs (done), firmware map (structure done; the arithmetic is settled in the harness), two-CPU harness, library foundation (build, converter, process macro, DSP56000 arithmetic, test framework, signal generator, tables fixture), then the configurations simplest first, with Hush and the Mixer as the first shared pieces, then de-popped variants where the firmware clicks.
+Work order: workspace and docs (done), firmware map (structure done; the arithmetic is settled in the harness), two-CPU harness (done), library foundation (build, converter, process macro, DSP56000 arithmetic, test framework, signal generator, tables fixture), then the configurations simplest first, with Hush and the Mixer as the first shared pieces, then de-popped variants where the firmware clicks.
 
 MIDI, preset storage, title edit, controller and program mapping, bypass and the panel are supporting firmware areas, not effects.
 
@@ -146,7 +147,7 @@ The emulator only records; every check runs offline.
 - The EPROM holds the 8051 program at `0x0000..0x4AEF`, then eight DSP images, then `0xFF` fill from `0x7EEF` (`reverse_engineering/EFFECTS.md`, "EPROM layout"). `build_workspace.py` re-derives this from the image headers and checks every record's SHA-256.
 - DSP words are 24-bit big-endian in the EPROM and the records. Ghidra's DSP56300 language reads byte-reversed LE24 words and uses byte addresses, three per word: `build_ghidra.py` reverses the words in memory and multiplies word addresses by three.
 - All six configuration images load at `P:$00A0`, over the boot image's init code. Never put two images that load at the same address into one Ghidra program.
-- `dsp56300-disasm` decodes DSP56300 encodings, a superset of the DSP56000's, and prints the DSP56001's peripheral addresses `X:$FFC0..$FFFF` as `x:$ffffc0..`. An instruction only the DSP56300 has (`bsr`, `bra`, `brclr`...) in this code means data.
+- The DSP listings come from `build/tools/ifx_dsp_disasm` (Hatari's DSP56001 disassembler): a `do` names its loop's last word, and peripherals print as `x:$ffc0..`.
 
 ## Tooling
 

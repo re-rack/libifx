@@ -117,6 +117,7 @@ extern void dsp56k_init_cpu(void);		/* Set dsp_core to use */
 extern void dsp56k_execute_instruction(void);	/* Execute 1 instruction */
 extern uint16_t dsp56k_execute_one_disasm_instruction(FILE *out, uint16_t pc);	/* Execute 1 instruction in disasm mode */
 extern void dsp56k_write_memory(int space, uint32_t address, uint32_t value);	/* Write 1 word with peripheral side effects */
+extern uint32_t dsp56k_read_memory(int space, uint32_t address);	/* Read 1 word with peripheral side effects */
 
 /* Interrupt relative functions */
 void dsp_set_interrupt(uint32_t intr, uint32_t set);

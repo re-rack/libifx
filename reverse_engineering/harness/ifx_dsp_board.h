@@ -51,8 +51,15 @@ void ifx_dsp_board_run(ifx_dsp_board *board, uint32_t cycles);
 /* One SSI frame: hand `in` to the receiver, run a sample period of
  * instructions, then clock out the two words the DAC takes per frame. A frame
  * that found the receiver still full or the transmitter still empty is counted
- * and, for the transmitter, repeats the previous word. */
-void ifx_dsp_board_frame(ifx_dsp_board *board, int16_t in, int16_t *left, int16_t *right);
+ * and, for the transmitter, repeats the previous word.
+ *
+ * `in` is the receive register's word as the A/D's converter fills it; `left`
+ * and `right` are the DSP's own 24-bit transmit words, taken before the SSI
+ * shifts them to its word length, and signed. */
+void ifx_dsp_board_frame(ifx_dsp_board *board, uint32_t in, int32_t *left, int32_t *right);
+
+/* The two words the last frame clocked out. */
+void ifx_dsp_board_output(const ifx_dsp_board *board, int32_t *left, int32_t *right);
 
 unsigned ifx_dsp_board_receive_overruns(const ifx_dsp_board *board);
 unsigned ifx_dsp_board_transmit_underruns(const ifx_dsp_board *board);

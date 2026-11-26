@@ -34,8 +34,9 @@ or build another beside it:
 
 ## Tools
 
-- `python3` and `dsp56300-disasm` from [xemu-project/dsp56300](https://github.com/xemu-project/dsp56300)
-  (`DISASSEMBLER=` names another; it must accept `-f u24be --color never -s HEX -n COUNT FILE`).
+- `python3`, and a C compiler for `build/tools/ifx_dsp_disasm`, which the Makefile builds from the
+  harness's copy of Hatari's DSP56001 disassembler (`DISASSEMBLER=` names another; it must accept
+  `-f u24be --color never -s HEX -n COUNT FILE`).
 - Ghidra 12.2 (`GHIDRA=`, default `/opt/ghidra`) with the Ghidra-Rare DSP56300 extension from
   [aleph-void/ghidra-dsp56300](https://github.com/aleph-void/ghidra-dsp56300), and a Python with
   PyGhidra (`PYGHIDRA=`, default `~/.local/share/gmajor2/pyghidra/bin/python`). Step 3 is skipped
@@ -87,9 +88,8 @@ load at the same address into one Ghidra program. Cells that need several values
   DPTR with the table address resolves to its AJMP or LJMP table, sized by a preceding
   `anl A,#mask` where there is one; the entries are instructions too. Any other computed jump is
   reported, and code reached only through one stays undecoded.
-- **DSP.** `dsp56300-disasm` decodes DSP56300 encodings, a superset of the DSP56000's, linearly:
-  inline tables appear as junk instructions, and peripheral addresses print as `x:$ffffeb` for the
-  DSP56001's `X:$FFEB`.
+- **DSP.** `ifx_dsp_disasm` decodes linearly in DSP56001 syntax: peripherals print as `x:$ffeb`,
+  a `do` names its loop's last word, and inline tables appear as junk instructions.
 
 ## Call graph limits
 
@@ -112,3 +112,30 @@ the runtime.
 
 Shared code appears in all six configuration programs; annotate it in one. Analysis coverage is not
 complete: computed jumps and inline tables are not resolved.
+
+## The harness
+
+`harness/` runs the firmware: the test recorder drives it, and nothing in `src/` links it. `make
+harness` builds `build/harness/libifxharness.a`, `make tools` the programs below.
+
+| Path | Content |
+|---|---|
+| `hatari/` | Hatari's DSP56001 interpreter and disassembler (GPL-2.0-or-later), with the board's memory map; its `README.md` lists every change |
+| `mcs51/` | mcs51_emulator (MIT) for the 80C32, with the core bugs a lockstep run against ucsim `s51` found fixed; its `README.md` lists them |
+| `ifx_dsp_board.{c,h}` | the DSP side: the core, the host interface, the SSI and the port registers |
+| `ifx_mcu_board.{c,h}` | the MCU side: battery RAM, the host port, the panel's knobs and buttons, the display |
+| `ifx_emu.{c,h}` | the coupled board: power on, recall, panel edits one detent at a time, audio in and out, the log of parameter messages |
+| `ifx_mcu_bringup.c` | `build/tools/ifx_mcu_bringup`, a command line over `ifx_emu` (its file comment lists the commands; `verify:audio`, `verify:echo` and `verify:factory` are its checks) |
+| `ifx_dsp_disasm.c` | `build/tools/ifx_dsp_disasm`, the workspace's DSP disassembler |
+| `ifx_dsp_core_check.c` | `make dsp-core-check`: the vendored core's memory map |
+
+- **Schedule.** One frame is one input sample: 423 DSP instruction cycles (a 33 MHz DSP56001) and
+  a fixed number of 80C32 clocks. The firmware's own timing is asynchronous; this schedule is ours.
+- **Converters.** The A/D hands the receive register 16 bits; `ifx_emu_feed.adc16 = false` hands
+  over the whole 24-bit word instead. Output is the DSP's full 24-bit transmit words, of which the
+  D/A keeps the top 16 bits.
+- **Battery.** Power-on starts from the battery the firmware's own FACTORY RESTORE leaves:
+  `ifx_emu_battery_factory()` builds the same image `ifx_emu_factory_restore()` gets by dialling
+  the panel, which `verify:factory` checks byte for byte.
+- One DSP board per process: the vendored core keeps global state.
+

@@ -4,8 +4,8 @@ A C17 library, `libifx`, that is to re-create the six effect configurations of t
 Intellifex LTD (1995) for use as audio plugins, bit-exact against the original firmware: for the
 same input and knob settings, the same output samples as the hardware's DSP.
 
-**Status: reverse engineering.** The firmware workspace and Ghidra project build; the firmware map
-is in progress and no effect is implemented yet.
+**Status: reverse engineering.** The firmware workspace, the Ghidra project and a two-CPU harness
+that runs the original firmware build; no effect is implemented yet.
 
 | Configuration | Effect | Status |
 |---|---|---|
@@ -36,7 +36,9 @@ The repository holds neither the firmware nor the manual.
 |---|---|
 | `make ghidra-prepare` | verify the EPROM, split it, disassemble both processors and build the Ghidra project |
 | `make ghidra-clean` | remove what `ghidra-prepare` generates, keeping the Ghidra project |
-| `make static-check` | `ruff check` and `ruff format --check` on the workspace scripts |
+| `make harness`, `make tools` | the firmware harness and its programs (`reverse_engineering/README.md`) |
+| `make format` | apply clang-format |
+| `make static-check` | clang-format check, cppcheck, gcc and clang warnings and analyzers, ruff |
 | `make clean` | remove `build/` |
 
 Put the EPROM (and optionally the manual) into the project root or `reverse_engineering/inputs/`
@@ -44,8 +46,8 @@ under any name; the scripts find them by SHA-256 ([`reverse_engineering/README.m
 
 ## Dependencies
 
+- `make`, `gcc` and `clang` (C17), `clang-format`, `cppcheck`
 - `python`, `ruff`: the workspace scripts
-- xemu DSP56300 toolkit ([xemu-project/dsp56300](https://github.com/xemu-project/dsp56300)): `dsp56300-disasm`, later the emulator library
 - Ghidra 12.2 with the Ghidra-Rare DSP56300 extension ([aleph-void/ghidra-dsp56300](https://github.com/aleph-void/ghidra-dsp56300)) and PyGhidra
 
 ## Layout

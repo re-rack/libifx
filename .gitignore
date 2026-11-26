@@ -1,0 +1,23 @@
+*.o
+/build/
+/.codegraph/
+/.ruff_cache/
+__pycache__/
+# Ghidra creates these while the project is open.
+*.lock
+*.lock~
+# The EPROM and the manual, and everything made from the EPROM.
+/*.BIN
+/*.bin
+/*.pdf
+/reverse_engineering/inputs/
+/reverse_engineering/firmware/
+/reverse_engineering/asm/
+/reverse_engineering/callgraph/
+/reverse_engineering/memory_map.csv
+/reverse_engineering/entrypoints.csv
+/reverse_engineering/seeds.csv
+/reverse_engineering/ghidra/
+/reverse_engineering/ghidra_analysis/
+# The project brief; AGENTS.md carries what was agreed.
+/PROMPT.md

@@ -39,8 +39,8 @@ The scripts find both by SHA-256, under any name, in the project root or `revers
 | `reverse_engineering/EFFECTS.md` | Verified firmware map and reusable findings for the native library |
 | `Makefile` | Every build, check and tool target; all output goes to `build/` or the workspace's untracked paths |
 | `README.md` | The project's front page |
-
-`src/` (library code only) and `tests/` (recorder, checker, fixtures) follow the rules below once they exist.
+| `src/` | Library code only: `ifx.h`, the base and context, the converter, the process macro (`ifx_process.h`), the DSP56000 arithmetic (`ifx_dsp_math.h`), the shared tables, and the effects |
+| `tests/` | The recorder, the checker, the signal generator and the fixtures (`tests/README.md`) |
 
 ## Native effect progress
 
@@ -55,7 +55,7 @@ An effect is **Complete** when it has a native setup path, an audio kernel, all 
 | Hush; Chorus; Delay; Reverb (23–24) | `ifx_chorus_reverb` | Mixer, Hush, 4 chorus/delay voices, Ducker, Reverb | Not started |
 | Hush; Pitch Shift; Delay; Reverb (34–35) | `ifx_pitch_reverb` | Mixer, Hush, 2 pitch voices, Delay 3, Ducker, Reverb | Not started |
 
-Work order: workspace and docs (done), firmware map (structure done; the arithmetic is settled in the harness), two-CPU harness (done), library foundation (build, converter, process macro, DSP56000 arithmetic, test framework, signal generator, tables fixture), then the configurations simplest first, with Hush and the Mixer as the first shared pieces, then de-popped variants where the firmware clicks.
+Work order: workspace and docs (done), firmware map (structure done; the arithmetic is settled in the harness), two-CPU harness (done), library foundation (done), then the configurations simplest first, with Hush and the Mixer as the first shared pieces, then de-popped variants where the firmware clicks.
 
 MIDI, preset storage, title edit, controller and program mapping, bypass and the panel are supporting firmware areas, not effects.
 
@@ -84,7 +84,7 @@ Agreed with the user; change them only with the user.
 Every effect has the same interface, the instance first and the knob struct by const pointer; `src/ifx.h` will state the contract once and include every effect inside `extern "C"`:
 
 ```c
-void ifx_context_init(ifx_context *context, double rate);   /* the device rate, IFX_DEVICE_RATE by default */
+int  ifx_context_init(ifx_context *context, double rate);    /* the device rate, IFX_DEVICE_RATE by default */
 int  ifx_X_setup_config(const ifx_context *context, const ifx_X_setup_raw *raw, ifx_X_config *config);
 void ifx_X_state_init(ifx_X_state *state, const ifx_X_config *config);
 void ifx_X_process_split(ifx_X_state *state, const ifx_X_config *config, const int32_t *in,
@@ -97,9 +97,9 @@ void ifx_X_process_frame(ifx_X_state *state, const ifx_X_config *config, int32_t
                          int32_t out[2]);
 ```
 
-- Setup forces every raw knob into the firmware's own window and returns 0, or -1 for a NULL pointer or an uninitialised context. A knob change means the host reruns setup and passes the new config, which applies from the next frame; there is no publish or apply call.
-- The interleaved entry point takes a mono input buffer and writes interleaved stereo. Any buffer size works, and an output may share its buffer with the input.
-- The four entry points are generated from one frame function by `IFX_PROCESS_DEFINE`.
+- `ifx_context_init` returns 0, or -1 for a NULL context or a rate that is not finite and positive, which leaves the context without a rate. Setup forces every raw knob into the firmware's own window and returns 0, or -1 for a NULL pointer or a context without a rate. A knob change means the host reruns setup and passes the new config, which applies from the next frame; there is no publish or apply call.
+- The interleaved entry point takes a mono input buffer and writes interleaved stereo. Any buffer size works. In split and f32 either output may be the input buffer; the interleaved output, twice the input's size, must not overlap it.
+- The four entry points are generated from one block function by `IFX_PROCESS_DEFINE`, which gathers and plays the blocks.
 - No allocation and no global state. `make build` writes `build/default/libifx.a` with `-fPIC` and hidden visibility; `make install` installs it with every header under `include/ifx/` and an `ifx.pc`. Headers stay valid C++17: `restrict` and `_Static_assert` stay out of what C++ reads.
 - No public function, parameter or constant exists for tests alone.
 
@@ -116,7 +116,7 @@ libgmajor2's `AGENTS.md` "Code conventions" apply with `gm2` renamed `ifx`; the 
 - A config holds `int32_t coef[]`: the words the firmware stages, in the firmware's order, as sign-extended 24-bit values, with an enum naming the positions the code uses. A state holds the kernel's own words. Nothing is kept because the firmware keeps it: a scratch word is a local, a constant word is a constant, a word no output depends on is not computed. Only audio input is masked on reading.
 - DSP56000 arithmetic, firmware tables, LFOs, parameter smoothing and conversions live in shared helpers, never in an effect. The 8051's integer math and tables become shared helpers too, word for word.
 - Raw fields are named after the knob in lower case with underscores; their comment gives the range and meaning, never a default.
-- A header's file comment says what the module is and which firmware routines it ports. Interface functions carry no comment unless the effect has something of its own to say. A header declares state_init, process_split, process_f32, process_interleaved, process_frame, in that order. A `.c` file orders: includes (its own header first, then the others alphabetically), constants, static helpers, the frame function, state_init, `IFX_PROCESS_DEFINE`.
+- A header's file comment says what the module is and which firmware routines it ports. Interface functions carry no comment unless the effect has something of its own to say. A header declares state_init, process_split, process_f32, process_interleaved, process_frame, in that order. A `.c` file orders: includes (its own header first, then the others alphabetically), constants, static helpers, the block function, state_init, `IFX_PROCESS_DEFINE`.
 - Comments carry only a *why* the code cannot show, in the fewest words; never narrate the code or the change.
 
 ## Effect independence
@@ -128,8 +128,8 @@ Every effect becomes its own plugin: a standalone module with its own config, st
 - **Analog stages are not ported**: the converters, the input and output pots, the reference switch, the analog direct path. Level knobs the firmware applies (the Mixer) are knobs of the effect, and the host adds no blend of its own.
 - **Asynchronous timing gets a fixed schedule.** Whatever the firmware times asynchronously (MCU timers, the pace at which the MCU sends words) gets a fixed schedule in the port, and the recorder uses the same schedule. The arithmetic is the firmware's; only the timing is ours.
 - **Knob turns follow the device**: each word glides, ramps or jumps exactly as the firmware moves it.
-- **Blocks and latency.** The firmware drains its parameter messages at the start of each 32-frame block, so a config passed before frame n applies from the first block that starts at or after n; the port counts frames from a block start at state_init. The port adds no I/O latency: output frame n is the DSP's output for input frame n, and the device's 64 frames of ring latency belong to the converter interface.
-- **Recorded knob turns** go through the MCU's own send routine `C:0EE0`, the path MIDI controllers use, with the value in the parameter's IRAM slot: one message per change, delivered to land in the block the port's rule above names. The panel path, one message per detent, is checked separately by the harness.
+- **Blocks and latency.** The firmware works in 32-frame blocks, and a block's Hush gain, ducker and regen limiter depend on that block's own peak, so the port has one block of latency, 32 frames: the state gathers a block, processes it when its last frame arrives, with the config passed with that frame, and plays it during the next 32 frames; the first 32 output frames are the rest output. Port output frame m is the device's output frame m + 32, bit for bit, the device adding 32 frames of converter double buffering. Blocks are counted from state_init.
+- **Recorded knob turns** go through the MCU's own send routine `C:0EE0`, the path MIDI controllers use, with the value in the parameter's IRAM slot: one message per change, delivered after the previous block's messages were drained, so that the block containing the turn's frame applies it. The panel path, one message per detent, is checked separately by the harness.
 - **Effects start at rest**: buffers and detectors empty, smoothed words on their targets. A parameter that no page of the configuration shows is not ported. No features the device lacks (tempo sync, LFO alignment) unless the user asks.
 
 ## Testing

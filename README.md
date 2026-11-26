@@ -4,8 +4,9 @@ A C17 library, `libifx`, that is to re-create the six effect configurations of t
 Intellifex LTD (1995) for use as audio plugins, bit-exact against the original firmware: for the
 same input and knob settings, the same output samples as the hardware's DSP.
 
-**Status: reverse engineering.** The firmware workspace, the Ghidra project and a two-CPU harness
-that runs the original firmware build; no effect is implemented yet.
+**Status: foundation.** The firmware workspace, the Ghidra project, a two-CPU harness that runs
+the original firmware, and the library's foundation (build, converter, process macro, DSP56000
+arithmetic, shared tables, test framework) are in place; no effect is implemented yet.
 
 | Configuration | Effect | Status |
 |---|---|---|
@@ -34,6 +35,13 @@ The repository holds neither the firmware nor the manual.
 
 | Target | What it does |
 |---|---|
+| `make build` | `build/default/libifx.a` (the default) |
+| `make install`, `make uninstall` | the library, its headers under `include/ifx/` and `ifx.pc`, under `PREFIX` |
+| `make check` | every fixture and the host checks, offline ([`tests/README.md`](tests/README.md)) |
+| `make check-install` | build a C and a C++ host against a staged install |
+| `make check-convert` | the float converter on every float, every SIMD path |
+| `make record-fixture FIXTURE=<name>`, `make record-all-fixtures` | record fixtures from the firmware harness (needs the EPROM) |
+| `make sanitize`, `make coverage` | the checks under ASan and UBSan; gcov coverage of `src/` |
 | `make ghidra-prepare` | verify the EPROM, split it, disassemble both processors and build the Ghidra project |
 | `make ghidra-clean` | remove what `ghidra-prepare` generates, keeping the Ghidra project |
 | `make harness`, `make tools` | the firmware harness and its programs (`reverse_engineering/README.md`) |
@@ -47,6 +55,7 @@ under any name; the scripts find them by SHA-256 ([`reverse_engineering/README.m
 ## Dependencies
 
 - `make`, `gcc` and `clang` (C17), `clang-format`, `cppcheck`
+- `check-convert`: `aarch64-linux-gnu-gcc`, `riscv64-linux-gnu-gcc`, `qemu-aarch64`, `qemu-riscv64`; `coverage`: `gcov`
 - `python`, `ruff`: the workspace scripts
 - Ghidra 12.2 with the Ghidra-Rare DSP56300 extension ([aleph-void/ghidra-dsp56300](https://github.com/aleph-void/ghidra-dsp56300)) and PyGhidra
 
@@ -54,5 +63,7 @@ under any name; the scripts find them by SHA-256 ([`reverse_engineering/README.m
 
 | Path | Contents |
 |---|---|
-| `reverse_engineering/` | the workspace scripts and the firmware map ([`EFFECTS.md`](reverse_engineering/EFFECTS.md)) |
+| `src/` | the library |
+| `tests/` | the recorder, the checker and the fixtures ([`tests/README.md`](tests/README.md)) |
+| `reverse_engineering/` | the workspace scripts, the harness and the firmware map ([`EFFECTS.md`](reverse_engineering/EFFECTS.md)) |
 | `AGENTS.md` | the project's rules and decisions |

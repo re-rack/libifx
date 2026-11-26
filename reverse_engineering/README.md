@@ -128,7 +128,7 @@ harness` builds `build/harness/libifxharness.a`, `make tools` the programs below
 | `mcs51/` | mcs51_emulator (MIT) for the 80C32, with the core bugs a lockstep run against ucsim `s51` found fixed; its `README.md` lists them |
 | `ifx_dsp_board.{c,h}` | the DSP side: the core, the host interface, the SSI and the port registers |
 | `ifx_mcu_board.{c,h}` | the MCU side: battery RAM, the host port, the panel's knobs and buttons, the display |
-| `ifx_emu.{c,h}` | the coupled board: power on, recall, panel edits one detent at a time, a parameter sent through the MCU's own `C:0EE0` without advancing audio, block alignment, a run started at rest from any knob vector (`ifx_emu_load`, `ifx_emu_settle`), audio in and out, the log of parameter messages |
+| `ifx_emu.{c,h}` | the coupled board: power on, recall, panel edits one detent at a time, a parameter sent through the MCU's own `C:0EE0` without advancing audio, block alignment, a run started at the configuration's initialisation from any knob vector (`ifx_emu_start`), or at rest (`ifx_emu_load`, `ifx_emu_settle`), audio in and out, the log of parameter messages |
 | `ifx_mcu_bringup.c` | `build/tools/ifx_mcu_bringup`, a command line over `ifx_emu` (its file comment lists the commands; `verify:audio`, `verify:echo`, `verify:factory` and `verify:timing` are its checks) |
 | `ifx_dsp_disasm.c` | `build/tools/ifx_dsp_disasm`, the workspace's DSP disassembler |
 | `ifx_dsp_core_check.c` | `make dsp-core-check`: the vendored core's memory map |
@@ -146,9 +146,13 @@ harness` builds `build/harness/libifxharness.a`, `make tools` the programs below
   frames held, so audio does not advance.
 - **Setup words.** `ifx_emu_apply` feeds silence until the next pass has run its dispatcher and
   stops at its return, before the configuration can change what the handlers staged.
-- **Starting at rest.** `ifx_emu_load` writes a user preset, clears the DSP's memory, reboots the
-  board and recalls the preset through the panel; `ifx_emu_settle` then feeds silence until the
-  wipe and initialisation are done and the output has rested on `$066666`.
+- **Starting a run.** `ifx_emu_load` writes a user preset, clears the DSP's memory, reboots the
+  board and recalls the preset through the panel. `ifx_emu_start` does the same and stops at the
+  first frame of the block whose pass runs the configuration's initialisation: the last wipe pass
+  (which drains the rest of the recall's messages) and a skip pass come first, so that block is
+  the first the configuration processes. The recorder starts every fixture there, which is where
+  a native state_init stands. `ifx_emu_settle` instead feeds silence until the wipe and
+  initialisation are done and the output has rested on `$066666`.
 - **Battery.** Power-on starts from the battery the firmware's own FACTORY RESTORE leaves:
   `ifx_emu_battery_factory()` builds the same image `ifx_emu_factory_restore()` gets by dialling
   the panel, which `verify:factory` checks byte for byte.

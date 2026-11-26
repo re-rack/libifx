@@ -10,8 +10,9 @@
  *
  * A four-cycle pitch transition window overrides the pattern: cycle 1 is a
  * clean monophonic note of 110 Hz that changes to 300 Hz at frame 2264, and
- * cycle 2 continues 300 Hz for its first 1024 frames. Cycles 0 and 3 run the
- * pattern above.
+ * cycle 2 continues 300 Hz for its first 1024 frames. Cycle 3 is silent for
+ * its first 2048 frames, following cycle 2's impulse into a long quiet
+ * stretch. Cycle 0 runs the pattern above.
  *
  * Integer only, so x86-64 and AArch64 generate the same samples.
  */

@@ -22,9 +22,9 @@ static const ifx_effect_knob k_knobs[REVERB_KNOBS] = {
     {"PREDELAY L", 0, 209, 157, REVERB_HOLD, 20, 0},
     {"PREDELAY R", 0, 209, 209, REVERB_HOLD, 30, 0},
     {"GATE", 0, 1, 0, 0, 1, 0},
-    {"GATE DECAY", 0, 31, 0, 0, 0, 0},
+    {"GATE DECAY", 0, 31, 0, 0, 4, 0},
     {"GATE THRESH", 0, 24, 0, 0, 24, 0},
-    {"HOLD TIME", 0, 99, 0, 0, 0, 0},
+    {"HOLD TIME", 0, 99, 0, 0, 1, 0},
 };
 
 static void reverb_raw(const int32_t *values, ifx_reverb_setup_raw *raw) {
@@ -56,4 +56,17 @@ static void reverb_words(const ifx_reverb_config *config, int32_t *words) {
   }
 }
 
-IFX_EFFECT_DEFINE(reverb, reverb, k_knobs, reverb_raw, reverb_words, REVERB_SETUP_WORDS)
+/* The long quiet stretch stages a low-damped feedback word, then raises the
+ * damping while the gate holds so Y:$000B + Y:$0001 overflows. */
+static const ifx_effect_extra k_extra[] = {
+    {7, 99, 0},   /* REVERB DECAY */
+    {8, 0, 0},    /* RV HF DAMP */
+    {14, 1, 0},   /* GATE */
+    {16, 24, 0},  /* GATE THRESH */
+    {15, 4, 0},   /* GATE DECAY */
+    {17, 0, 0},   /* HOLD TIME */
+    {7, 99, 7491}, {8, 33, 2048},
+};
+
+IFX_EFFECT_DEFINE(reverb, reverb, k_knobs, reverb_raw, reverb_words, REVERB_SETUP_WORDS, k_extra,
+                  sizeof k_extra / sizeof k_extra[0])

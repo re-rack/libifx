@@ -20,8 +20,8 @@ firmware --harness--> ifx_record --> tests/fixtures/<name>.bin
   changes (the tables, an effect's knob table or script, the input signal, the
   fixture format), never because `src/` changed.
 - Inputs are generated (`ifx_signal.c`: noise, held notes, bursts, quiet noise, a
-  sweep, clicks and a 110 to 300 Hz note change, mono at 39 kHz), never stored.
-  The fixtures hold only the firmware's answers.
+  sweep, clicks, a 110 to 300 Hz note change and a long silent stretch, mono at
+  39 kHz), never stored. The fixtures hold only the firmware's answers.
 
 ## Fixtures
 
@@ -54,9 +54,17 @@ marked as a mode knob gets one full active walk per value; D TYPE therefore runs
 the whole walk for Stereo, Ping-Pong and 2-Tap. Each walk starts with the mode
 change and an 8,192-frame settle, long enough for the wipe and several echoes.
 Delay-time knobs hold their maximum long enough for the buffer to wrap in every
-mode. The audio run feeds generated input from rest after `ifx_emu_settle` and
-`ifx_emu_align`; fixture output frame m is the device's output at feed index
-m + 32.
+mode. The audio run starts through `ifx_emu_start` at the first frame of the
+block whose pass initialises the configuration; fixture output frame m is the
+device's output at feed index m + 32.
+
+The signal's four-pattern cycle ends with cycle 3 silent for its first 2048
+frames, so the impulse at the end of cycle 2 runs into a quiet stretch of 80
+blocks, long enough for the reverb gate's shortest hold. A per-effect list of
+extra scripted turns (`ifx_effect_extra`) runs after the generated segments:
+`tests/effect_reverb.c` uses it to raise RV HF DAMP while the gate holds a gain
+staged with REVERB DECAY 99 and no damping, and `tests/effect_chorus8.c` uses it
+to walk the voice sweeps into the phase re-sync.
 
 ## How the checker compares
 

@@ -30,9 +30,17 @@ typedef struct {
 } ifx_effect_knob;
 
 typedef struct {
+  int knob;
+  int value;
+  uint32_t frames;
+} ifx_effect_extra;
+
+typedef struct {
   const char *name; /* fixture stem */
   unsigned knobs;
   const ifx_effect_knob *knob;
+  const ifx_effect_extra *extra; /* turns after the generated script */
+  unsigned extras;
   uint32_t setup_words; /* coefficient words per setup record */
   int (*setup)(const int32_t *values, int32_t *words);
   int (*rejects)(void);
@@ -47,8 +55,11 @@ typedef struct {
 } ifx_effect;
 
 #define IFX_EFFECT_POISON 0xA5
+#define IFX_EFFECT_EXTRA_MAX 32u
 
-#define IFX_EFFECT_DEFINE(fixture, module, knob_table, raw, words, word_count)                     \
+#define IFX_EFFECT_DEFINE(fixture, module, knob_table, raw, words, word_count, extra_table,        \
+                          extra_count)                                                             \
+  _Static_assert((extra_count) <= IFX_EFFECT_EXTRA_MAX, "too many extra turns");                   \
   typedef struct {                                                                                 \
     ifx_context context;                                                                           \
     ifx_##module##_config config;                                                                  \
@@ -155,6 +166,8 @@ typedef struct {
       .name = #fixture,                                                                            \
       .knobs = (unsigned)(sizeof(knob_table) / sizeof(knob_table)[0]),                             \
       .knob = (knob_table),                                                                        \
+      .extra = (extra_table),                                                                      \
+      .extras = (extra_count),                                                                     \
       .setup_words = (word_count),                                                                 \
       .setup = fixture##_setup,                                                                    \
       .rejects = fixture##_rejects,                                                                \
@@ -178,7 +191,8 @@ typedef struct {
 } ifx_segment;
 
 #define IFX_EFFECT_SEGMENTS(knobs)                                                                 \
-  (5u + (10u + 2u * IFX_EFFECT_FAST_TURNS) * (knobs) + 8u * (2u * (knobs) + 1u))
+  (5u + (10u + 2u * IFX_EFFECT_FAST_TURNS) * (knobs) + 8u * (2u * (knobs) + 1u) +                  \
+   IFX_EFFECT_EXTRA_MAX)
 
 static inline int ifx_knob_clamp(const ifx_effect_knob *knob, int value) {
   return value < knob->min ? knob->min : value > knob->max ? knob->max : value;
@@ -281,6 +295,10 @@ static inline unsigned ifx_effect_segments(const ifx_effect *effect, ifx_segment
     }
   }
   segment[n++] = (ifx_segment){IFX_ALL, 0, IFX_EFFECT_SEGMENT};
+  for (unsigned i = 0; i < effect->extras; i++) {
+    const ifx_effect_extra *extra = &effect->extra[i];
+    segment[n++] = (ifx_segment){extra->knob, extra->value, extra->frames};
+  }
   for (unsigned i = 0; i < n; i++) {
     segment[i].frames += i % 4u;
   }

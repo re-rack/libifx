@@ -87,6 +87,7 @@ struct ifx_emu {
   uint32_t ring_read;
   uint32_t ring_write;
   bool ring_valid;
+  bool start_pending;
   ifx_emu_message messages[IFX_EMU_MESSAGES];
   unsigned message_count;
   unsigned message_dropped;
@@ -586,6 +587,21 @@ bool ifx_emu_apply(ifx_emu *emu) {
   if (emu == NULL || !ifx_dsp_board_running(emu->dsp)) {
     return false;
   }
+  if (emu->start_pending) {
+    emu->start_pending = false;
+    for (unsigned i = 0; i < 64u; ++i) {
+      ifx_emu_feed feed = {NULL, 1u, false};
+      if (!ifx_emu_audio(emu, &feed, NULL, NULL)) {
+        return false;
+      }
+      if ((ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, 0x0000u) & (1u << 3)) == 0u) {
+        break;
+      }
+    }
+    if ((ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, 0x0000u) & (1u << 3)) != 0u) {
+      return false;
+    }
+  }
   if ((ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, 0x0000u) & (1u << 1)) == 0u) {
     return true;
   }
@@ -621,7 +637,49 @@ static const uint8_t *parameter_list(const ifx_emu *emu, unsigned config) {
   return &emu->eprom[IFX_EMU_PARAMETER_LISTS + IFX_EMU_PARAMETER_LIST_STRIDE * config];
 }
 
-bool ifx_emu_load(ifx_emu *emu, unsigned config, const uint8_t values[IFX_EMU_PARAMETER_COUNT]) {
+static bool recall_to_init(ifx_emu *emu, unsigned preset) {
+  if (preset < 1u || preset > IFX_EMU_PRESET_COUNT) {
+    return false;
+  }
+  unsigned wanted = preset - 1u;
+  unsigned current = ifx_mcu_board_iram(emu->mcu, IFX_EMU_IRAM_PRESET);
+  if (current != wanted) {
+    int delta = (int)wanted - (int)current;
+    ifx_emu_turn(emu, IFX_MCU_BOARD_PRESET, delta);
+  }
+  uint32_t start_wipe = ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, 0x0017u);
+  ifx_emu_button(emu, IFX_MCU_BOARD_BUTTON_RECALL, true);
+  const uint64_t release = ifx_emu_clocks(emu) + 30u * (IFX_MCU_BOARD_XTAL_HZ / 1000u);
+  bool released = false;
+  bool wiped = false;
+  for (unsigned tick = 0; tick < IFX_EMU_SETTLE_LIMIT; ++tick) {
+    uint32_t flags = ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, 0x0000u);
+    uint32_t wipe = ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, 0x0017u);
+    if ((flags & (1u << 11)) != 0u || wipe != start_wipe) {
+      wiped = true;
+    }
+    /* The last wipe pass starts the block whose pass runs the initialisation. */
+    if (wiped && wipe <= 0x1000u && ifx_emu_block_phase(emu) == 0u) {
+      ifx_mcu_board_panel_button(emu->mcu, IFX_MCU_BOARD_BUTTON_RECALL, false);
+      return ifx_mcu_board_iram(emu->mcu, IFX_EMU_IRAM_PRESET) == wanted;
+    }
+    if (!released && ifx_emu_clocks(emu) >= release) {
+      ifx_mcu_board_panel_button(emu->mcu, IFX_MCU_BOARD_BUTTON_RECALL, false);
+      released = true;
+    }
+    ifx_emu_feed feed = {NULL, 1u, false};
+    if (!ifx_emu_audio(emu, &feed, NULL, NULL)) {
+      return false;
+    }
+  }
+  if (!released) {
+    ifx_mcu_board_panel_button(emu->mcu, IFX_MCU_BOARD_BUTTON_RECALL, false);
+  }
+  return false;
+}
+
+static bool load_preset(ifx_emu *emu, unsigned config,
+                        const uint8_t values[IFX_EMU_PARAMETER_COUNT], bool at_init) {
   if (emu == NULL || values == NULL || config >= 6u) {
     return false;
   }
@@ -656,7 +714,9 @@ bool ifx_emu_load(ifx_emu *emu, unsigned config, const uint8_t values[IFX_EMU_PA
    * power-on state so the wipe and initialisation really run. */
   ifx_dsp_board_clear_memory(emu->dsp);
   ifx_emu_reset(emu);
-  if (!ifx_emu_recall(emu, IFX_EMU_LOAD_PRESET) || ifx_emu_config(emu) != config) {
+  bool recalled =
+      at_init ? recall_to_init(emu, IFX_EMU_LOAD_PRESET) : ifx_emu_recall(emu, IFX_EMU_LOAD_PRESET);
+  if (!recalled || ifx_emu_config(emu) != config) {
     return false;
   }
   for (unsigned i = 0; i < IFX_EMU_PARAMETER_LIST_STRIDE && list[i] != 0u; ++i) {
@@ -664,6 +724,18 @@ bool ifx_emu_load(ifx_emu *emu, unsigned config, const uint8_t values[IFX_EMU_PA
       return false;
     }
   }
+  return true;
+}
+
+bool ifx_emu_load(ifx_emu *emu, unsigned config, const uint8_t values[IFX_EMU_PARAMETER_COUNT]) {
+  return load_preset(emu, config, values, false);
+}
+
+bool ifx_emu_start(ifx_emu *emu, unsigned config, const uint8_t values[IFX_EMU_PARAMETER_COUNT]) {
+  if (!load_preset(emu, config, values, true)) {
+    return false;
+  }
+  emu->start_pending = true;
   return true;
 }
 
@@ -892,6 +964,7 @@ void ifx_emu_messages_clear(ifx_emu *emu) { emu->message_count = 0; }
 
 void ifx_emu_reset(ifx_emu *emu) {
   ifx_dsp_board_reset(emu->dsp);
+  emu->start_pending = false;
   emu->clocks = 0;
   emu->dsp_cycle_acc = 0;
   emu->dsp_frame_acc = 0;

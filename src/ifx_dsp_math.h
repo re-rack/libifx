@@ -19,6 +19,29 @@ enum { IFX_W24_MAX = 0x7FFFFF, IFX_W24_MIN = -0x800000 };
 _Static_assert((-1 >> 1) == -1, "ifx_asr needs an arithmetic right shift");
 #endif
 
+/* The DSP56000 AGU's post-update with modulo M: M+1 words in the next
+ * power-of-two window; a delta that is a multiple of the window steps linearly. */
+static inline uint32_t ifx_agu_step(uint32_t address, int32_t delta, uint32_t m) {
+  const uint32_t modulo = m + 1u;
+  uint32_t bufsize = 1u;
+  while (bufsize < modulo) {
+    bufsize <<= 1u;
+  }
+  const uint32_t bufmask = bufsize - 1u;
+  const uint32_t low = (address | 0x10000u) & ~bufmask;
+  const uint32_t high = low + modulo - 1u;
+  const uint32_t magnitude = delta < 0 ? (uint32_t)(-delta) : (uint32_t)delta;
+  uint32_t reg = (address | 0x10000u) + (uint32_t)delta;
+  if ((magnitude & bufmask) != 0u) {
+    if (reg > high) {
+      reg -= modulo;
+    } else if (reg < low) {
+      reg += modulo;
+    }
+  }
+  return reg & 0xFFFFu;
+}
+
 /* 24-bit word <-> signed value. */
 static inline int32_t ifx_s24(uint32_t word) {
   return (int32_t)((word & 0xFFFFFFu) ^ 0x800000u) - 0x800000;

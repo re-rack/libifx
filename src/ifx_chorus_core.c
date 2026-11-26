@@ -30,32 +30,6 @@ static const uint32_t k_lfo[32] = {
     0x851EB8, 0x828F5C, 0x87AE14, 0x90A3D7, 0xA00000, 0xB47AE1, 0xCB851F, 0xE51EB8,
 };
 
-/* The DSP56000 AGU's post-update step; a modifier that is a multiple of the
- * modulo buffer's size moves to the next buffer without a bounds correction. */
-static uint32_t step(uint32_t r, int32_t n, uint32_t m) {
-  uint32_t reg = r | 0x10000u;
-  const uint32_t modulo = m + 1u;
-  uint32_t bufsize = 1u;
-  while (bufsize < modulo) {
-    bufsize <<= 1;
-  }
-  const uint32_t bufmask = bufsize - 1u;
-  const uint32_t lobound = reg - (reg & bufmask);
-  const uint32_t hibound = lobound + modulo - 1u;
-  const uint32_t magnitude = n < 0 ? (uint32_t)(-n) : (uint32_t)n;
-  if ((magnitude & bufmask) != 0u) {
-    reg += (uint32_t)n;
-    if (reg > hibound) {
-      reg -= modulo;
-    } else if (reg < lobound) {
-      reg += modulo;
-    }
-  } else {
-    reg += (uint32_t)n;
-  }
-  return reg & 0xFFFFu;
-}
-
 static int64_t word_acc(int32_t value) { return (int64_t)value * 0x1000000; }
 
 static int64_t set_a1(int64_t acc, int32_t value) {
@@ -154,40 +128,40 @@ void ifx_chorus_core_process(ifx_chorus_core_state *state, const int32_t *voices
     const int32_t x1 = state->regen_r;
     unsigned sample = 0;
     int32_t y0 = memory[r5];
-    r5 = step(r5, 1, m5);
+    r5 = ifx_agu_step(r5, 1, m5);
     int64_t b = word_acc(input[sample++]);
     int32_t y1 = memory[r6];
-    r6 = step(r6, 1, m6);
+    r6 = ifx_agu_step(r6, 1, m6);
     b = ifx_mac(b, y0, x0);
     y0 = memory[r5];
-    r5 = step(r5, 1, m5);
+    r5 = ifx_agu_step(r5, 1, m5);
     b = ifx_macr(b, y1, x1);
     int64_t a = word_acc(input[sample++]);
     y1 = memory[r6];
-    r6 = step(r6, 1, m6);
+    r6 = ifx_agu_step(r6, 1, m6);
     for (unsigned i = 0; i < 15u; i++) {
       a = ifx_mac(a, y0, x0);
       history[r1 & 0x3Fu] = ifx_store24(b);
-      r1 = step(r1, 1, m1);
+      r1 = ifx_agu_step(r1, 1, m1);
       y0 = memory[r5];
-      r5 = step(r5, 1, m5);
+      r5 = ifx_agu_step(r5, 1, m5);
       a = ifx_macr(a, y1, x1);
       b = word_acc(input[sample++]);
       y1 = memory[r6];
-      r6 = step(r6, 1, m6);
+      r6 = ifx_agu_step(r6, 1, m6);
       b = ifx_mac(b, y0, x0);
       history[r1 & 0x3Fu] = ifx_store24(a);
-      r1 = step(r1, 1, m1);
+      r1 = ifx_agu_step(r1, 1, m1);
       y0 = memory[r5];
-      r5 = step(r5, 1, m5);
+      r5 = ifx_agu_step(r5, 1, m5);
       b = ifx_macr(b, y1, x1);
       a = word_acc(input[sample++]);
       y1 = memory[r6];
-      r6 = step(r6, 1, m6);
+      r6 = ifx_agu_step(r6, 1, m6);
     }
     a = ifx_mac(a, y0, x0);
     history[r1 & 0x3Fu] = ifx_store24(b);
-    r1 = step(r1, 1, m1);
+    r1 = ifx_agu_step(r1, 1, m1);
     a = ifx_macr(a, y1, x1);
     history[r1 & 0x3Fu] = ifx_store24(a);
 
@@ -201,25 +175,25 @@ void ifx_chorus_core_process(ifx_chorus_core_state *state, const int32_t *voices
     for (unsigned out = 0; out < 32u; out++) {
       a = 0;
       int32_t tap_word = history[r1 & 0x3Fu];
-      r1 = step(r1, -1, m1);
+      r1 = ifx_agu_step(r1, -1, m1);
       y0 = ifx_s24(k_tap16[r4 & 0x0Fu]);
-      r4 = step(r4, 1, m4);
+      r4 = ifx_agu_step(r4, 1, m4);
       for (unsigned tap = 0; tap < 15u; tap++) {
         a = ifx_mac(a, y0, tap_word);
         tap_word = history[r1 & 0x3Fu];
-        r1 = step(r1, -1, m1);
+        r1 = ifx_agu_step(r1, -1, m1);
         y0 = ifx_s24(k_tap16[r4 & 0x0Fu]);
-        r4 = step(r4, 1, m4);
+        r4 = ifx_agu_step(r4, 1, m4);
       }
       a = ifx_macr(a, y0, tap_word);
-      r1 = step(r1, 8, m1);
+      r1 = ifx_agu_step(r1, 8, m1);
       y1 = history[r1 & 0x3Fu];
-      r1 = step(r1, 8, m1);
+      r1 = ifx_agu_step(r1, 8, m1);
       memory[r5 & 0xFFFFu] = y1;
-      r5 = step(r5, (int32_t)n5, fm5);
+      r5 = ifx_agu_step(r5, (int32_t)n5, fm5);
       memory[r5 & 0xFFFFu] = ifx_store24(a);
-      r5 = step(r5, (int32_t)n5, fm5);
-      r1 = step(r1, 1, m1);
+      r5 = ifx_agu_step(r5, (int32_t)n5, fm5);
+      r1 = ifx_agu_step(r1, 1, m1);
     }
     state->filter_write = r5;
     state->history_write = r1;
@@ -239,21 +213,21 @@ void ifx_chorus_core_process(ifx_chorus_core_state *state, const int32_t *voices
     for (unsigned out = 0; out < 64u; out++) {
       a = 0;
       int32_t tap_word = ifx_s24(k_tap6[fr1 - TAP6_BASE]);
-      fr1 = step(fr1, 1, fm1);
+      fr1 = ifx_agu_step(fr1, 1, fm1);
       y0 = memory[fr4 & 0xFFFFu];
-      fr4 = step(fr4, (int32_t)fn4, fm4);
+      fr4 = ifx_agu_step(fr4, (int32_t)fn4, fm4);
       for (unsigned tap = 0; tap < 5u; tap++) {
         a = ifx_mac(a, y0, tap_word);
         tap_word = ifx_s24(k_tap6[fr1 - TAP6_BASE]);
-        fr1 = step(fr1, 1, fm1);
+        fr1 = ifx_agu_step(fr1, 1, fm1);
         y0 = memory[fr4 & 0xFFFFu];
-        fr4 = step(fr4, (int32_t)fn4, fm4);
+        fr4 = ifx_agu_step(fr4, (int32_t)fn4, fm4);
       }
       a = ifx_macr(a, y0, tap_word);
-      r3 = step(r3, (int32_t)n3, m3);
+      r3 = ifx_agu_step(r3, (int32_t)n3, m3);
       fr4 = r3;
       memory[fr5 & 0xFFFFu] = ifx_store24(a);
-      fr5 = step(fr5, (int32_t)fn5, f2m5);
+      fr5 = ifx_agu_step(fr5, (int32_t)fn5, f2m5);
     }
     state->filter_read = r3;
     state->filter2_write = fr5;
@@ -309,9 +283,9 @@ void ifx_chorus_core_process(ifx_chorus_core_state *state, const int32_t *voices
       a = lsl_a1(a);
       a = ifx_asr(a);
       x1 = store_a0(a);
-      r4 = step(r4, 0x1800, 0x1Fu);
+      r4 = ifx_agu_step(r4, 0x1800, 0x1Fu);
       a = word_acc(ifx_s24(k_lfo[r4 & 0x1Fu]));
-      r4 = step(r4, 1, 0x1Fu);
+      r4 = ifx_agu_step(r4, 1, 0x1Fu);
       x0 = store_a1(a);
       y1 = ifx_s24(k_lfo[r4 & 0x1Fu]);
       a = ifx_mac(a, -x1, x0);
@@ -336,62 +310,62 @@ void ifx_chorus_core_process(ifx_chorus_core_state *state, const int32_t *voices
       for (unsigned index = 0; index < 31u; index++) {
         sweep[r4 & 0x3Fu] = store_a1(a);
         sweep[(r4 + 1u) & 0x3Fu] = store_a0(a);
-        r4 = step(r4, 2, m4);
+        r4 = ifx_agu_step(r4, 2, m4);
         a = ifx_acc56(a + b);
         a = mask_a1(a, y1);
       }
       sweep[r4 & 0x3Fu] = store_a1(a);
       sweep[(r4 + 1u) & 0x3Fu] = store_a0(a);
-      r4 = step(r4, 2, m4);
+      r4 = ifx_agu_step(r4, 2, m4);
       phase[0] = store_a1(a);
       phase[1] = store_a0(a);
 
       /* P:$017F: interpolate the 32 swept taps. */
       b = 0;
       r5 = (uint32_t)sweep[r4 & 0x3Fu];
-      r4 = step(r4, 1, m4);
+      r4 = ifx_agu_step(r4, 1, m4);
       b = set_a1(b, sweep[r4 & 0x3Fu]);
-      r4 = step(r4, 1, m4);
+      r4 = ifx_agu_step(r4, 1, m4);
       for (unsigned tap = 0; tap < 32u; tap++) {
         b = (b & ~((int64_t)0xFFFFFF << 24)) |
             ((int64_t)(((uint32_t)(b >> 24) & 0xFFFFFFu) >> 1) << 24);
-        r5 = step(r5, (int32_t)n5, 0x1FFFu);
+        r5 = ifx_agu_step(r5, (int32_t)n5, 0x1FFFu);
         x1 = store_a1(b);
         a = word_acc(memory[r5 & 0xFFFFu]);
-        r5 = step(r5, 1, 0x1FFFu);
+        r5 = ifx_agu_step(r5, 1, 0x1FFFu);
         x0 = store_a1(a);
         y1 = memory[r5 & 0xFFFFu];
         a = ifx_mac(a, -x1, x0);
         a = ifx_macr(a, y1, x1);
         r5 = (uint32_t)sweep[r4 & 0x3Fu];
-        r4 = step(r4, 1, m4);
+        r4 = ifx_agu_step(r4, 1, m4);
         b = set_a1(0, sweep[r4 & 0x3Fu]);
         sweep[r4 & 0x3Fu] = ifx_store24(a);
-        r4 = step(r4, 1, m4);
+        r4 = ifx_agu_step(r4, 1, m4);
       }
 
       /* P:$018C: add the voice into both delay lines at its delay. */
       r3 = state->read_l;
       {
         const uint32_t delay = (uint32_t)voices[voice * 8u + 3u] & 0xFFFFu;
-        r3 = step(r3, (int32_t)delay, m3);
+        r3 = ifx_agu_step(r3, (int32_t)delay, m3);
         r6 = state->read_r;
-        r6 = step(r6, (int32_t)delay, m6);
+        r6 = ifx_agu_step(r6, (int32_t)delay, m6);
       }
-      r4 = step(r4, 1, m4);
+      r4 = ifx_agu_step(r4, 1, m4);
       x1 = voices[voice * 8u + 6u];
       y1 = voices[voice * 8u + 7u];
       for (unsigned tap = 0; tap < 32u; tap++) {
         a = word_acc(memory[r3 & 0xFFFFu]);
         y0 = sweep[r4 & 0x3Fu];
-        r4 = step(r4, 2, m4);
+        r4 = ifx_agu_step(r4, 2, m4);
         a = ifx_macr(a, x1, y0);
         b = word_acc(memory[r6 & 0xFFFFu]);
         b = ifx_macr(b, y1, y0);
         memory[r3 & 0xFFFFu] = ifx_store24(a);
-        r3 = step(r3, 1, m3);
+        r3 = ifx_agu_step(r3, 1, m3);
         memory[r6 & 0xFFFFu] = ifx_store24(b);
-        r6 = step(r6, 1, m6);
+        r6 = ifx_agu_step(r6, 1, m6);
       }
     }
   }
@@ -405,11 +379,11 @@ void ifx_chorus_core_process(ifx_chorus_core_state *state, const int32_t *voices
     for (unsigned frame = 0; frame < 32u; frame++) {
       const int32_t left = memory[r3 & 0xFFFFu];
       memory[r3 & 0xFFFFu] = 0;
-      r3 = step(r3, 1, m3);
+      r3 = ifx_agu_step(r3, 1, m3);
       out_l[frame] = left;
       const int32_t right = memory[r4 & 0xFFFFu];
       memory[r4 & 0xFFFFu] = 0;
-      r4 = step(r4, 1, m4);
+      r4 = ifx_agu_step(r4, 1, m4);
       out_r[frame] = right;
     }
     state->read_l = r3;

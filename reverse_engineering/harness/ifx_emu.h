@@ -78,6 +78,10 @@ bool ifx_emu_apply(ifx_emu *emu);
  * recall it through the panel, and leave the panel on it. */
 bool ifx_emu_load(ifx_emu *emu, unsigned config, const uint8_t values[IFX_EMU_PARAMETER_COUNT]);
 
+/* The same load, left at the first frame of the block whose P:$0400 pass runs
+ * the configuration's initialisation, with the block phase at zero. */
+bool ifx_emu_start(ifx_emu *emu, unsigned config, const uint8_t values[IFX_EMU_PARAMETER_COUNT]);
+
 /* Feed silence until the configuration is initialised, the delay memory is
  * wiped and both outputs have stayed at the rest word for four blocks. Returns
  * the frames used through `frames_used`. */

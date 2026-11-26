@@ -54,4 +54,4 @@ static void delay_words(const ifx_delay_config *config, int32_t *words) {
   }
 }
 
-IFX_EFFECT_DEFINE(delay, delay, k_knobs, delay_raw, delay_words, DELAY_SETUP_WORDS)
+IFX_EFFECT_DEFINE(delay, delay, k_knobs, delay_raw, delay_words, DELAY_SETUP_WORDS, NULL, 0)

@@ -54,6 +54,10 @@ void ifx_signal_next(ifx_signal *signal, int32_t *sample) {
     signal->sweep += hz_step(300u);
     return;
   }
+  if ((cycle & 3u) == 3u && part < 2048u) {
+    *sample = 0;
+    return;
+  }
   if (part < 1024u) {
     *sample = noise_sample(&signal->noise);
   } else if (part < 2048u) {

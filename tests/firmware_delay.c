@@ -48,8 +48,7 @@ static void *delay_open(void) {
     return NULL;
   }
   self->emu = ifx_emu_create(NULL);
-  if (self->emu == NULL || !ifx_emu_load(self->emu, 3, k_defaults) ||
-      !ifx_emu_settle(self->emu, NULL) || !ifx_emu_align(self->emu)) {
+  if (self->emu == NULL || !ifx_emu_start(self->emu, 3, k_defaults)) {
     if (self->emu != NULL) {
       ifx_emu_destroy(self->emu);
     }
@@ -64,8 +63,7 @@ static void *delay_open(void) {
 
 static int delay_load(void *instance, const uint8_t values[IFX_EMU_PARAMETER_COUNT]) {
   firmware_delay *const self = instance;
-  if (!ifx_emu_load(self->emu, 3, values) || !ifx_emu_settle(self->emu, NULL) ||
-      !ifx_emu_align(self->emu)) {
+  if (!ifx_emu_start(self->emu, 3, values)) {
     return -1;
   }
   for (unsigned knob = 0; knob < 23u; knob++) {

@@ -33,8 +33,6 @@ static void chorus8_block(ifx_chorus8_state *state, const ifx_chorus8_config *co
   }
 }
 
-enum { SETTLE_BLOCKS = 380 };
-
 void ifx_chorus8_state_init(ifx_chorus8_state *state, const ifx_chorus8_config *config) {
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
     state->wet_left[i] = 0;
@@ -44,16 +42,6 @@ void ifx_chorus8_state_init(ifx_chorus8_state *state, const ifx_chorus8_config *
   ifx_hush_core_state_init(&state->hush);
   ifx_chorus_core_state_init(&state->chorus, config->coef[IFX_CHORUS8_COEF_REG_LEFT],
                              config->coef[IFX_CHORUS8_COEF_REG_RIGHT]);
-  /* The device wipes and settles for this many silent blocks before a preset
-   * runs; the LFO phases and rotating pointers must start where it leaves them. */
-  int32_t silence[IFX_BLOCK_FRAMES] = {0};
-  int32_t wet_l[IFX_BLOCK_FRAMES];
-  int32_t wet_r[IFX_BLOCK_FRAMES];
-  for (unsigned block = 0; block < SETTLE_BLOCKS; block++) {
-    ifx_chorus_core_process(&state->chorus, &config->coef[IFX_CHORUS8_COEF_VOICES],
-                            config->coef[IFX_CHORUS8_COEF_REG_LEFT],
-                            config->coef[IFX_CHORUS8_COEF_REG_RIGHT], silence, wet_l, wet_r);
-  }
   ifx_process_block_init(&state->block);
 }
 

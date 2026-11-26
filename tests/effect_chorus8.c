@@ -117,4 +117,15 @@ static void chorus8_words(const ifx_chorus8_config *config, int32_t *words) {
   }
 }
 
-IFX_EFFECT_DEFINE(chorus8, chorus8, k_knobs, chorus8_raw, chorus8_words, CHORUS8_SETUP_WORDS)
+/* A long slow sweep brings the voice accumulator within the filter write
+ * pointer's $200 window, exercising the phase re-sync. */
+static const ifx_effect_extra k_extra[] = {
+    {11, 1, 64},  {16, 1, 64},  {21, 1, 64},  {26, 1, 64},  {31, 1, 64},
+    {36, 1, 64},  {41, 1, 64},  {46, 1, 64},  {13, 0, 64},  {18, 0, 64},
+    {23, 0, 64},  {28, 0, 64},  {33, 0, 64},  {38, 0, 64},  {43, 0, 64},
+    {48, 0, 64},  {12, 80, 64}, {17, 80, 64}, {22, 80, 64}, {27, 80, 64},
+    {32, 80, 64}, {37, 80, 64}, {42, 80, 64}, {47, 80, 64}, {13, 0, 65536},
+};
+
+IFX_EFFECT_DEFINE(chorus8, chorus8, k_knobs, chorus8_raw, chorus8_words, CHORUS8_SETUP_WORDS,
+                  k_extra, sizeof k_extra / sizeof k_extra[0])

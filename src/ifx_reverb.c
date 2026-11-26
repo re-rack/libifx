@@ -17,37 +17,6 @@ enum {
   BLOCK_BASE_RIGHT = 1,
 };
 
-/* The DSP56000 AGU's modulo update, M+1 words in the next power-of-two window. */
-static uint32_t step(uint32_t address, int delta, uint32_t m) {
-  const uint32_t modulo = m + 1u;
-  uint32_t bufsize = 1u;
-  while (bufsize < modulo) {
-    bufsize <<= 1u;
-  }
-  const uint32_t bufmask = bufsize - 1u;
-  uint32_t reg = address | 0x10000u;
-  const uint32_t low = reg - (reg & bufmask);
-  const uint32_t high = low + modulo - 1u;
-  const uint32_t magnitude = (uint32_t)(delta < 0 ? -delta : delta);
-  if ((magnitude & bufmask) != 0u) {
-    if (delta < 0) {
-      reg -= magnitude;
-    } else {
-      reg += magnitude;
-    }
-    if (reg > high) {
-      reg -= modulo;
-    } else if (reg < low) {
-      reg += modulo;
-    }
-  } else if (delta < 0) {
-    reg -= magnitude;
-  } else {
-    reg += magnitude;
-  }
-  return reg & 0xFFFFu;
-}
-
 static int32_t load_word(const int32_t *memory, uint32_t address) {
   return memory[address & 0xFFFFu];
 }
@@ -71,7 +40,7 @@ static void write_predelay(ifx_reverb_state *state, const ifx_reverb_config *con
     lowpass = ifx_store24(a);
     b = ifx_macr(b, lowpass, low_freq);
     state->memory[state->write] = ifx_store24(b);
-    state->write = step(state->write, 1, PREDELAY_M);
+    state->write = ifx_agu_step(state->write, 1, PREDELAY_M);
   }
   state->lowpass = lowpass;
 }
@@ -80,15 +49,15 @@ static void write_predelay(ifx_reverb_state *state, const ifx_reverb_config *con
 static void read_predelay(const ifx_reverb_state *state, const ifx_reverb_config *config,
                           uint32_t base, int32_t left[IFX_BLOCK_FRAMES],
                           int32_t right[IFX_BLOCK_FRAMES]) {
-  uint32_t r2 = step(base, -(int)config->coef[IFX_REVERB_COEF_PREDELAY_LEFT], PREDELAY_M);
-  uint32_t r3 = step(base, -(int)config->coef[IFX_REVERB_COEF_PREDELAY_RIGHT], PREDELAY_M);
+  uint32_t r2 = ifx_agu_step(base, -(int)config->coef[IFX_REVERB_COEF_PREDELAY_LEFT], PREDELAY_M);
+  uint32_t r3 = ifx_agu_step(base, -(int)config->coef[IFX_REVERB_COEF_PREDELAY_RIGHT], PREDELAY_M);
   const int32_t pan_left = config->coef[IFX_REVERB_COEF_PAN_LEFT];
   const int32_t pan_right = config->coef[IFX_REVERB_COEF_PAN_RIGHT];
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
     left[i] = ifx_store24(ifx_mpyr(pan_left, load_word(state->memory, r2)));
-    r2 = step(r2, 1, PREDELAY_M);
+    r2 = ifx_agu_step(r2, 1, PREDELAY_M);
     right[i] = ifx_store24(ifx_mpyr(pan_right, load_word(state->memory, r3)));
-    r3 = step(r3, 1, PREDELAY_M);
+    r3 = ifx_agu_step(r3, 1, PREDELAY_M);
   }
 }
 
@@ -101,26 +70,26 @@ static void allpass_block(ifx_reverb_state *state, const int32_t block[IFX_BLOCK
     uint32_t r2 = (uint32_t)state->table[index] & 0xFFFFu;
     const int32_t c = ifx_s24((uint32_t)state->table[index + 1u]);
     int64_t a = load_acc(state->memory, r2);
-    r2 = step(r2, 1, REVERB_M);
+    r2 = ifx_agu_step(r2, 1, REVERB_M);
     int32_t y0 = block[sample];
     sample = (sample + 1u) & BLOCK_MASK;
     for (unsigned pair = 0; pair < 16u; pair++) {
       int64_t b = load_acc(state->memory, r2);
-      r2 = step(r2, -1, REVERB_M);
+      r2 = ifx_agu_step(r2, -1, REVERB_M);
       a = ifx_macr(a, y0, c);
       state->memory[r2] = ifx_store24(a);
-      r2 = step(r2, 2, REVERB_M);
+      r2 = ifx_agu_step(r2, 2, REVERB_M);
       a = load_acc(state->memory, r2);
-      r2 = step(r2, -1, REVERB_M);
+      r2 = ifx_agu_step(r2, -1, REVERB_M);
       const int32_t y1 = block[sample];
       sample = (sample + 1u) & BLOCK_MASK;
       b = ifx_macr(b, c, y1);
       state->memory[r2] = ifx_store24(b);
-      r2 = step(r2, 2, REVERB_M);
+      r2 = ifx_agu_step(r2, 2, REVERB_M);
       y0 = block[sample];
       sample = (sample + 1u) & BLOCK_MASK;
     }
-    r2 = step(r2, -1, REVERB_M);
+    r2 = ifx_agu_step(r2, -1, REVERB_M);
     sample = (sample - 1u) & BLOCK_MASK;
     state->table[index] = (int32_t)r2;
     index += 2u;
@@ -136,23 +105,23 @@ static void tap_block(const ifx_reverb_state *state, int32_t block[IFX_BLOCK_FRA
   uint32_t r5 = (uint32_t)state->table[base + 6u] & 0xFFFFu;
   unsigned sample = BLOCK_MASK;
   int32_t x0 = load_word(state->memory, r2);
-  r2 = step(r2, 1, REVERB_M);
+  r2 = ifx_agu_step(r2, 1, REVERB_M);
   int64_t previous = 0;
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
     block[sample] = ifx_store24(previous);
     sample = (sample + 1u) & BLOCK_MASK;
     int64_t a = ifx_mpy(TAP_COEF, x0);
     x0 = load_word(state->memory, r3);
-    r3 = step(r3, 1, REVERB_M);
+    r3 = ifx_agu_step(r3, 1, REVERB_M);
     a = ifx_mac(a, TAP_COEF, x0);
     x0 = load_word(state->memory, r4);
-    r4 = step(r4, 1, REVERB_M);
+    r4 = ifx_agu_step(r4, 1, REVERB_M);
     a = ifx_mac(a, TAP_COEF, x0);
     x0 = load_word(state->memory, r5);
-    r5 = step(r5, 1, REVERB_M);
+    r5 = ifx_agu_step(r5, 1, REVERB_M);
     a = ifx_macr(a, TAP_COEF, x0);
     x0 = load_word(state->memory, r2);
-    r2 = step(r2, 1, REVERB_M);
+    r2 = ifx_agu_step(r2, 1, REVERB_M);
     previous = a;
   }
   block[sample] = ifx_store24(previous);
@@ -168,13 +137,13 @@ static void allpass_damped_block(ifx_reverb_state *state, const int32_t block[IF
     unsigned sample = 0;
     int32_t y0 = block[sample];
     sample = (sample + 1u) & BLOCK_MASK;
-    r5 = step(r5, -1, REVERB_M);
+    r5 = ifx_agu_step(r5, -1, REVERB_M);
     int32_t x0 = load_word(state->memory, r5);
-    r5 = step(r5, 1, REVERB_M);
+    r5 = ifx_agu_step(r5, 1, REVERB_M);
     int64_t a = ifx_mpy(gain, y0);
     a = ifx_mac(a, damp, x0);
     x0 = load_word(state->memory, r2);
-    r2 = step(r2, 1, REVERB_M);
+    r2 = ifx_agu_step(r2, 1, REVERB_M);
     a = ifx_macr(a, -x0, gain);
     y0 = block[sample];
     sample = (sample + 1u) & BLOCK_MASK;
@@ -182,18 +151,18 @@ static void allpass_damped_block(ifx_reverb_state *state, const int32_t block[IF
     for (unsigned i = 1u; i < IFX_BLOCK_FRAMES; i++) {
       a = ifx_mpy(gain, y0);
       state->memory[r5] = ifx_store24(previous);
-      r5 = step(r5, 1, REVERB_M);
+      r5 = ifx_agu_step(r5, 1, REVERB_M);
       x0 = ifx_store24(previous);
       a = ifx_mac(a, damp, x0);
       x0 = load_word(state->memory, r2);
-      r2 = step(r2, 1, REVERB_M);
+      r2 = ifx_agu_step(r2, 1, REVERB_M);
       a = ifx_macr(a, -x0, gain);
       y0 = block[sample];
       sample = (sample + 1u) & BLOCK_MASK;
       previous = a;
     }
     state->memory[r5] = ifx_store24(previous);
-    r5 = step(r5, 1, REVERB_M);
+    r5 = ifx_agu_step(r5, 1, REVERB_M);
     state->table[index] = (int32_t)r2;
     state->table[index + 1u] = (int32_t)r5;
     index += 2u;

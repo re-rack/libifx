@@ -34,6 +34,8 @@ extern "C" {
 #include "ifx_convert.h"
 #include "ifx_delay.h"
 #include "ifx_delay_setup.h"
+#include "ifx_reverb.h"
+#include "ifx_reverb_setup.h"
 
 #ifdef __cplusplus
 }

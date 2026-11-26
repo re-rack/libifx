@@ -96,12 +96,11 @@ ARCH := $(if $(findstring x86_64,$(MACHINE)),x86_64,$(if $(findstring aarch64,$(
 
 LIB_OBJECTS := $(patsubst %.c,$(BUILD)/%.o,$(wildcard src/*.c))
 LIB_HEADERS := $(wildcard src/*.h)
-TEST_EFFECT_OBJECTS := $(BUILD)/tests/effect_delay.o $(BUILD)/tests/effect_chorus8.o
+TEST_EFFECT_OBJECTS := $(patsubst %.c,$(BUILD)/%.o,$(wildcard tests/effect_*.c))
 CHECK_OBJECTS := $(BUILD)/tests/ifx_check.o $(BUILD)/tests/ifx_fixture.o $(BUILD)/tests/ifx_signal.o \
                  $(TEST_EFFECT_OBJECTS)
 RECORD_OBJECTS := $(BUILD)/tests/ifx_record.o $(BUILD)/tests/ifx_fixture.o $(BUILD)/tests/ifx_signal.o \
-                  $(TEST_EFFECT_OBJECTS) $(BUILD)/tests/firmware_delay.o \
-                  $(BUILD)/tests/firmware_chorus8.o
+                  $(TEST_EFFECT_OBJECTS) $(patsubst %.c,$(BUILD)/%.o,$(wildcard tests/firmware_*.c))
 OBJECTS := $(sort $(LIB_OBJECTS) $(CHECK_OBJECTS) $(RECORD_OBJECTS) \
              $(BUILD)/tests/ifx_bench.o \
              $(patsubst %.c,$(BUILD)/%.o,$(wildcard tests/test_convert.c)))

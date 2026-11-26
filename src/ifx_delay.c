@@ -5,13 +5,12 @@
 #include "ifx_mixer_core.h"
 #include "ifx_mixer_design.h"
 #include "ifx_regen_core.h"
+#include "ifx_wipe_core.h"
 
 enum {
   LINE_WORDS = (int)IFX_DELAY_LINE_WORDS,
   LINE1_BASE = 0x1800,
   LINE2_BASE = 0x8C00,
-  WIPE_STEP = 0x800,
-  WIPE_END = 0x1000,
 };
 
 static uint32_t wrapped(int index) {
@@ -154,30 +153,11 @@ static void process_delay(ifx_delay_state *state, const ifx_delay_config *config
   }
 }
 
-static void wipe_call(ifx_delay_state *state) {
-  for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    state->wet_left[i] = 0;
-    state->wet_right[i] = 0;
-  }
-  if (state->wipe_pointer > WIPE_END) {
-    const uint32_t first = state->wipe_pointer - (WIPE_STEP - 1u);
-    for (uint32_t address = first; address <= state->wipe_pointer; address++) {
-      state->memory[address & 0xFFFFu] = 0;
-    }
-    state->wipe_pointer -= WIPE_STEP;
-    return;
-  }
-  if (state->init_pending != 0) {
-    state->wipe_active = 0;
-    state->skip_pass = 1;
-  }
-}
-
 static void delay_block(ifx_delay_state *state, const ifx_delay_config *config,
                         const int32_t in[IFX_BLOCK_FRAMES], int32_t out_l[IFX_BLOCK_FRAMES],
                         int32_t out_r[IFX_BLOCK_FRAMES]) {
-  if (state->wipe_active != 0) {
-    wipe_call(state);
+  if (state->wipe.active != 0) {
+    ifx_wipe_core_call(&state->wipe, state->memory, state->wet_left, state->wet_right);
   }
 
   if (state->staged_regen1 != config->coef[IFX_DELAY_COEF_REG_LEFT]) {
@@ -192,10 +172,8 @@ static void delay_block(ifx_delay_state *state, const ifx_delay_config *config,
   const int32_t flags = config->coef[IFX_DELAY_COEF_DELAY_FLAGS];
   const int32_t type_mask = IFX_DELAY_TYPE_STEREO | IFX_DELAY_TYPE_PINGPONG | IFX_DELAY_TYPE_2TAP;
   if ((flags & type_mask) != (state->delay_flags & type_mask)) {
-    if (state->init_pending == 0) {
-      state->wipe_pointer = 0xFFFFu;
-      state->wipe_active = 1;
-      state->init_pending = 1;
+    if (state->wipe.init_pending == 0) {
+      ifx_wipe_core_restart(&state->wipe);
     }
   }
   state->delay_flags = flags;
@@ -208,11 +186,11 @@ static void delay_block(ifx_delay_state *state, const ifx_delay_config *config,
       &state->hush, front, hush, level, config->coef[IFX_DELAY_COEF_HUSH_THRESHOLD],
       config->coef[IFX_DELAY_COEF_HUSH_SLOPE], config->coef[IFX_DELAY_COEF_HUSH_RELEASE],
       (config->coef[IFX_DELAY_COEF_FLAGS] & IFX_MIXER_FLAG_HUSH) != 0);
-  if (state->skip_pass != 0) {
-    state->skip_pass = 0;
-  } else if (state->wipe_active == 0) {
-    if (state->init_pending != 0) {
-      state->init_pending = 0;
+  if (state->wipe.skip_pass != 0) {
+    state->wipe.skip_pass = 0;
+  } else if (state->wipe.active == 0) {
+    if (state->wipe.init_pending != 0) {
+      state->wipe.init_pending = 0;
       state->write1 = 0;
       state->write2 = 0;
       state->damp1 = 0;
@@ -234,8 +212,8 @@ static void delay_block(ifx_delay_state *state, const ifx_delay_config *config,
                          config->coef[IFX_DELAY_COEF_DIRECT_LEFT],
                          config->coef[IFX_DELAY_COEF_DIRECT_RIGHT], direct_on, mixed_l, mixed_r);
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    out_l[i] = ifx_s24((uint32_t)(mixed_l[i] - IFX_MIXER_OFFSET));
-    out_r[i] = ifx_s24((uint32_t)(mixed_r[i] - IFX_MIXER_OFFSET));
+    out_l[i] = ifx_mixer_core_output(mixed_l[i]);
+    out_r[i] = ifx_mixer_core_output(mixed_r[i]);
   }
 }
 
@@ -259,10 +237,7 @@ void ifx_delay_state_init(ifx_delay_state *state, const ifx_delay_config *config
   state->regen1 = state->staged_regen1;
   state->regen2 = state->staged_regen2;
   state->delay_flags = config->coef[IFX_DELAY_COEF_DELAY_FLAGS];
-  state->wipe_pointer = 0;
-  state->wipe_active = 0;
-  state->init_pending = 0;
-  state->skip_pass = 0;
+  ifx_wipe_core_init(&state->wipe);
   ifx_process_block_init(&state->block);
 }
 

@@ -18,7 +18,7 @@
 #include <string.h>
 
 #define FIXTURE_DIR "tests/fixtures"
-#define DETAIL_MAX 5u
+#define DETAIL_MAX 500u
 #define HOST_FRAMES 4096u
 
 static unsigned item_failures;
@@ -72,6 +72,8 @@ static const native_table k_tables[] = {
     {"ifx_coarse_pitch_table", ifx_coarse_pitch_table, NULL, IFX_COARSE_PITCH_TABLE_WORDS},
     {"ifx_fine_pitch_table", ifx_fine_pitch_table, NULL, IFX_FINE_PITCH_TABLE_WORDS},
     {"ifx_window_table", NULL, ifx_window_table, IFX_WINDOW_TABLE_WORDS},
+    {"ifx_reverb_type_table", &ifx_reverb_type_table[0][0], NULL,
+     IFX_REVERB_TYPE_COUNT * IFX_REVERB_TYPE_TABLE_WORDS},
 };
 
 #define TABLE_COUNT (sizeof k_tables / sizeof k_tables[0])
@@ -986,25 +988,32 @@ static void usage(const char *program) {
   fprintf(stderr, "  no name: all of them\n");
 }
 
+#define IFX_EFFECT_POINTER(name) &ifx_effect_##name,
+static const ifx_effect *const k_effects[] = {IFX_EFFECTS(IFX_EFFECT_POINTER)};
+#undef IFX_EFFECT_POINTER
+
 int main(int argc, char **argv) {
   unsigned failures = 0;
   int tables = argc == 1;
   int host = argc == 1;
   int all_effects = argc == 1;
-  int selected_delay = 0;
-  int selected_chorus8 = 0;
+  unsigned selected = 0;
   for (int arg = 1; arg < argc; arg++) {
     if (strcmp(argv[arg], "tables") == 0) {
       tables = 1;
     } else if (strcmp(argv[arg], "host") == 0) {
       host = 1;
-    } else if (strcmp(argv[arg], "delay") == 0) {
-      selected_delay = 1;
-    } else if (strcmp(argv[arg], "chorus8") == 0) {
-      selected_chorus8 = 1;
     } else {
-      usage(argv[0]);
-      return 2;
+      unsigned effect = 0;
+      while (effect < sizeof k_effects / sizeof k_effects[0] &&
+             strcmp(argv[arg], k_effects[effect]->name) != 0) {
+        effect++;
+      }
+      if (effect == sizeof k_effects / sizeof k_effects[0]) {
+        usage(argv[0]);
+        return 2;
+      }
+      selected |= 1u << effect;
     }
   }
   if (tables != 0) {
@@ -1013,11 +1022,10 @@ int main(int argc, char **argv) {
   if (host != 0) {
     failures += check_host();
   }
-  if (all_effects != 0 || selected_delay != 0) {
-    failures += check_effect(&ifx_effect_delay);
-  }
-  if (all_effects != 0 || selected_chorus8 != 0) {
-    failures += check_effect(&ifx_effect_chorus8);
+  for (unsigned effect = 0; effect < sizeof k_effects / sizeof k_effects[0]; effect++) {
+    if (all_effects != 0 || (selected & (1u << effect)) != 0u) {
+      failures += check_effect(k_effects[effect]);
+    }
   }
   return failures == 0 ? 0 : 1;
 }

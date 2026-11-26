@@ -37,8 +37,9 @@ or build another beside it:
 - `python3`, and a C compiler for `build/tools/ifx_dsp_disasm`, which the Makefile builds from the
   harness's copy of Hatari's DSP56001 disassembler (`DISASSEMBLER=` names another; it must accept
   `-f u24be --color never -s HEX -n COUNT FILE`).
-- Ghidra 12.2 (`GHIDRA=`, default `/opt/ghidra`) with the Ghidra-Rare DSP56300 extension from
-  [aleph-void/ghidra-dsp56300](https://github.com/aleph-void/ghidra-dsp56300), and a Python with
+- Ghidra 12.2 (`GHIDRA=`, default `/opt/ghidra`) with Ghidra-Rare's DSP56000 module from
+  [aleph-void/Ghidra-Rare](https://github.com/aleph-void/Ghidra-Rare) (the release's
+  `ghidra_12.2_PUBLIC_*_DSP56000.zip` unpacked into `Ghidra/Extensions`), and a Python with
   PyGhidra (`PYGHIDRA=`, default `~/.local/share/gmajor2/pyghidra/bin/python`). Step 3 is skipped
   without them. uv installs PyGhidra from Ghidra's bundled offline package:
 
@@ -105,10 +106,13 @@ the runtime.
 
 - `ifx_mcu`: language `8051:BE:16:default`, the whole EPROM at `CODE:0000`, with `0x0000..0x4AEF`
   executable and the DSP images in a non-executable block.
-- `ifx_dsp_boot` and `ifx_dsp_cfg0` .. `ifx_dsp_cfg5`: language `DSP56300:LE:24:default`. The
-  language reads byte-reversed LE24 words and addresses bytes, so `build_ghidra.py` reverses each
-  word and places word address W at byte 3W. A configuration program is one block for the
-  bootstrap prefix and the configuration and one for the shared code.
+- `ifx_dsp_boot` and `ifx_dsp_cfg0` .. `ifx_dsp_cfg5`: language `DSP56000:BE:16:default`, with
+  separate P, X and Y spaces addressed in words. The language holds each 24-bit word in a 4-byte
+  big-endian unit, so `build_ghidra.py` widens the records' words. A configuration program is one
+  P block for the bootstrap prefix and the configuration and one for the shared code; X and Y are
+  uninitialised 64K-word blocks. Ghidra cannot alias them with P as the board does.
+- The language names the DSP56001's vectors and peripherals and models its address arithmetic,
+  stack and loops in p-code, so the decompiler is usable; Hatari is still the oracle.
 
 Shared code appears in all six configuration programs; annotate it in one. Analysis coverage is not
 complete: computed jumps and inline tables are not resolved.

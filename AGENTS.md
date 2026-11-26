@@ -18,7 +18,7 @@ The original firmware, run routine by routine in an emulator harness, is the ref
 | the EPROM, 32,768 bytes, SHA-256 `7f6162d9e77e9b63783df7a8158c646d287e746de1ca56bdbea63b92e60004b1` | the 27C256 of firmware v1.0, January 1995 |
 | the manual, SHA-256 `bda911de8908853575a79bcaae32d5dfd99ec52ca7656b004df992f7ee16034e` | the 1995 user's manual, 60 pages |
 
-The scripts find both by SHA-256, under any name, in the project root or `reverse_engineering/inputs/`. Never commit either, or anything that carries the firmware's bytes: records, disassembly, LE24 copies, the Ghidra project. `.gitignore` keeps them out.
+The scripts find both by SHA-256, under any name, in the project root or `reverse_engineering/inputs/`. Never commit either, or anything that carries the firmware's bytes: records, disassembly, the Ghidra images, the Ghidra project. `.gitignore` keeps them out.
 
 ## Reference documentation
 
@@ -149,7 +149,7 @@ The emulator only records; every check runs offline.
 ## Workspace invariants
 
 - The EPROM holds the 8051 program at `0x0000..0x4AEF`, then eight DSP images, then `0xFF` fill from `0x7EEF` (`reverse_engineering/EFFECTS.md`, "EPROM layout"). `build_workspace.py` re-derives this from the image headers and checks every record's SHA-256.
-- DSP words are 24-bit big-endian in the EPROM and the records. Ghidra's DSP56300 language reads byte-reversed LE24 words and uses byte addresses, three per word: `build_ghidra.py` reverses the words in memory and multiplies word addresses by three.
+- DSP words are 24-bit big-endian in the EPROM and the records. Ghidra's DSP56000 language holds each word in a 4-byte big-endian unit with the high byte zero, at word addresses in separate P, X and Y spaces: `build_ghidra.py` widens the words and replaces the language's default X and Y blocks, which end at `$3FFF`, with full 64K-word ones.
 - All six configuration images load at `P:$00A0`, over the boot image's init code. Never put two images that load at the same address into one Ghidra program.
 - The DSP listings come from `build/tools/ifx_dsp_disasm` (Hatari's DSP56001 disassembler): a `do` names its loop's last word, and peripherals print as `x:$ffc0..`.
 
@@ -159,7 +159,7 @@ The emulator only records; every check runs offline.
 - **xemu DSP56300 toolkit** (<https://github.com/xemu-project/dsp56300>, MIT): `dsp56300-disasm` and the C emulator library (`/usr/local/include/dsp56300.h`) remain available as an ALU cross-check should a Hatari result come into doubt; they do not model the DSP56000 behaviour above.
 - **rg-dis** (<https://rg.atari.org/tools/rg-dis/>): another DSP56000 disassembler, should a second opinion be needed.
 - **ucsim `s51`** (in `sdcc`, Arch `extra`): the reference for the one-time 8051 core cross-check.
-- **Ghidra 12.2** at `/opt/ghidra` with the built-in 8051 language (`8051:BE:16:default`) and the Ghidra-Rare DSP56300 extension (`DSP56300:LE:24:default`, <https://github.com/aleph-void/ghidra-dsp56300>). PyGhidra only: the environment at `~/.local/share/gmajor2/pyghidra/bin/python`; no Java scripts and no `analyzeHeadless` wrappers.
+- **Ghidra 12.2** at `/opt/ghidra` with the built-in 8051 language (`8051:BE:16:default`) and Ghidra-Rare's DSP56000 module (`DSP56000:BE:16:default`, DSP56000/56001 with the DSP56002 additions, <https://github.com/aleph-void/Ghidra-Rare>, release v1.1.0, installed under `/opt/ghidra/Ghidra/Extensions/DSP56000`). Its p-code models the DSP56001's 16-bit address arithmetic, modulo with multiple wrap-around, the 15-level stack, `do`/`rep` and the limiter, and its decoding agrees with Hatari's disassembler on every instruction of the seven DSP programs; Hatari stays the oracle. PyGhidra only: the environment at `~/.local/share/gmajor2/pyghidra/bin/python`; no Java scripts and no `analyzeHeadless` wrappers.
 - Python scripts use the standard library only and stay clean under `ruff check` and `ruff format --check` (`make static-check`).
 
 ## Boundaries and safeguards

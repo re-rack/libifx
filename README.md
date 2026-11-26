@@ -58,7 +58,7 @@ under any name; the scripts find them by SHA-256 ([`reverse_engineering/README.m
 - `make`, `gcc` and `clang` (C17), `clang-format`, `cppcheck`
 - `check-convert`: `aarch64-linux-gnu-gcc`, `riscv64-linux-gnu-gcc`, `qemu-aarch64`, `qemu-riscv64`; `coverage`: `gcov`
 - `python`, `ruff`: the workspace scripts
-- Ghidra 12.2 with the Ghidra-Rare DSP56300 extension ([aleph-void/ghidra-dsp56300](https://github.com/aleph-void/ghidra-dsp56300)) and PyGhidra
+- Ghidra 12.2 with Ghidra-Rare's DSP56000 module ([aleph-void/Ghidra-Rare](https://github.com/aleph-void/Ghidra-Rare)) and PyGhidra
 
 ## Layout
 

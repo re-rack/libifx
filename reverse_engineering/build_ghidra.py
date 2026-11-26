@@ -34,8 +34,10 @@ ENTRYPOINTS = RE_ROOT / "entrypoints.csv"
 DEFAULT_FIRMWARE = RE_ROOT / "firmware"
 
 WORD = 3
+# The DSP56000 language holds a word in a 4-byte big-endian unit with the high byte zero.
+UNIT = 4
 MCU_LANGUAGE = "8051:BE:16:default"
-DSP_LANGUAGE = "DSP56300:LE:24:default"
+DSP_LANGUAGE = "DSP56000:BE:16:default"
 LOADER = "BinaryLoader"
 JDK_OPTIONS = ("--enable-final-field-mutation=ALL-UNNAMED",)
 DEFAULT_PROJECT = "Intellifex"
@@ -60,7 +62,7 @@ class Record(NamedTuple):
 
     @property
     def unit(self) -> int:
-        return WORD if self.processor != "8051" else 1
+        return UNIT if self.processor != "8051" else 1
 
 
 class Region(NamedTuple):
@@ -85,16 +87,11 @@ class Spec(NamedTuple):
 
     @property
     def import_name(self) -> str:
-        # The imported DSP bytes are LE24, whatever the record's byte order.
-        return f"{self.name}.le24.bin" if self.unit == WORD else f"{self.name}.bin"
+        return f"{self.name}.be32.bin" if self.unit == UNIT else f"{self.name}.bin"
 
     @property
     def project_path(self) -> str:
         return "/" + self.import_name
-
-    def address(self, value: int) -> int:
-        """Ghidra address of a workspace address: bytes for the 8051, three per DSP word."""
-        return value * self.unit
 
 
 def read_manifest(firmware: Path) -> dict[str, Record]:
@@ -116,7 +113,7 @@ def read_manifest(firmware: Path) -> dict[str, Record]:
 
 
 def read_record(firmware: Path, record: Record) -> bytes:
-    """One firmware record, its big-endian words byte-reversed for Ghidra's LE24."""
+    """One firmware record, its 24-bit words widened to the language's 4-byte units."""
     path = firmware / record.filename
     if not path.is_file():
         raise SystemExit(f"missing firmware record {path}")
@@ -129,7 +126,7 @@ def read_record(firmware: Path, record: Record) -> bytes:
         return blob
     if len(blob) % WORD:
         raise SystemExit(f"{record.filename}: {len(blob)} bytes is not whole words")
-    return b"".join(blob[i : i + WORD][::-1] for i in range(0, len(blob), WORD))
+    return b"".join(b"\0" + blob[i : i + WORD] for i in range(0, len(blob), WORD))
 
 
 def build_specs(records: dict[str, Record]) -> tuple[Spec, ...]:
@@ -150,7 +147,7 @@ def build_specs(records: dict[str, Record]) -> tuple[Spec, ...]:
         Spec(
             stage=BOOT_REGION,
             language=DSP_LANGUAGE,
-            unit=WORD,
+            unit=UNIT,
             record=boot.filename,
             initial_block="boot",
             boot_prefix=0,
@@ -164,7 +161,7 @@ def build_specs(records: dict[str, Record]) -> tuple[Spec, ...]:
             Spec(
                 stage=configuration.region,
                 language=DSP_LANGUAGE,
-                unit=WORD,
+                unit=UNIT,
                 record=configuration.filename,
                 initial_block="boot_and_configuration",
                 # The configuration overwrites the bootstrap from its load address on.
@@ -182,7 +179,7 @@ def program_image(
     data = blobs[spec.record]
     if not spec.boot_prefix:
         return data
-    return blobs[records[BOOT_REGION].filename][: spec.boot_prefix * WORD] + data
+    return blobs[records[BOOT_REGION].filename][: spec.boot_prefix * UNIT] + data
 
 
 def read_seeds(stages: tuple[str, ...]) -> dict[str, list[int]]:
@@ -215,6 +212,15 @@ def read_entrypoints() -> dict[str, list[tuple[str, int]]]:
     return entries
 
 
+def program_address(program, value: int):
+    """The address of a workspace address, a byte for the 8051 and a P word for the DSP."""
+    return (
+        program.getAddressFactory()
+        .getDefaultAddressSpace()
+        .getTruncatedAddress(value, True)
+    )
+
+
 def setup_program(
     program, spec: Spec, blobs: dict[str, bytes], seeds: list[int], entries
 ) -> int:
@@ -224,10 +230,8 @@ def setup_program(
     from ghidra.program.model.symbol import SourceType
     from java.io import ByteArrayInputStream
 
-    default_space = program.getAddressFactory().getDefaultAddressSpace()
-
     def at(value: int):
-        return default_space.getAddress(spec.address(value))
+        return program_address(program, value)
 
     memory = program.getMemory()
     listing = program.getListing()
@@ -243,6 +247,22 @@ def setup_program(
         initial.setName(spec.initial_block)
         initial.setExecute(True)
         initial.setComment(f"Intellifex LTD {spec.stage} image")
+
+        if spec.unit == UNIT:
+            # The language's default X and Y blocks end at $3FFF: their length counts
+            # bytes, not words.
+            factory = program.getAddressFactory()
+            for space_name in ("x", "y"):
+                space = factory.getAddressSpace(space_name)
+                for block in list(memory.getBlocks()):
+                    if block.getStart().getAddressSpace() == space:
+                        memory.removeBlock(block, monitor)
+                memory.createUninitializedBlock(
+                    space_name.upper(),
+                    space.getTruncatedAddress(0, True),
+                    0x10000 * UNIT,
+                    False,
+                ).setWrite(True)
 
         api = FlatProgramAPI(program)
         for region in spec.regions:
@@ -296,7 +316,6 @@ def analyze_program(program, timeout: int) -> float:
 def export_program(program, spec: Spec, outdir: Path) -> Path:
     import pyghidra
 
-    default_space = program.getAddressFactory().getDefaultAddressSpace()
     name = program.getName()
     monitor = pyghidra.task_monitor()
     listing = program.getListing()
@@ -344,7 +363,7 @@ def export_program(program, spec: Spec, outdir: Path) -> Path:
                     )
                 )
 
-    keys = DSP_KEY_ADDRESSES if spec.unit == WORD else MCU_KEY_ADDRESSES
+    keys = DSP_KEY_ADDRESSES if spec.unit == UNIT else MCU_KEY_ADDRESSES
     lines = [
         f"program={name}",
         f"language={program.getLanguageID()}",
@@ -360,12 +379,12 @@ def export_program(program, spec: Spec, outdir: Path) -> Path:
             f"execute={execute}"
         )
     for value in keys:
-        address = default_space.getAddress(spec.address(value))
+        address = program_address(program, value)
         instruction = listing.getInstructionAt(address)
         if instruction is not None:
             lines.append(f"instruction={address},{instruction}")
     if spec.cross_target is not None:
-        target = default_space.getAddress(spec.address(spec.cross_target))
+        target = program_address(program, spec.cross_target)
         lines.append(f"references_to_{target}:")
         for reference in program.getReferenceManager().getReferencesTo(target):
             lines.append(
@@ -408,8 +427,8 @@ Intellifex LTD records, for importing by hand in the Ghidra GUI.
 Import each program's first file with File > Import File: format Raw Binary,
 language 8051:BE:16:default (mcu) or {DSP_LANGUAGE} (the DSP programs),
 base address 0. Add a program's other files with File > Add To Program, each at
-its byte address under its block name. Ghidra addresses are bytes; the DSP
-addresses in the CSVs are program words, so multiply them by three. The six
+its address under its block name. The DSP images hold each 24-bit word in a
+4-byte big-endian unit, and their addresses are P words, as in the CSVs. The six
 configurations overwrite the bootstrap from P:$00A0, so they are imported as the
 boot prefix plus the configuration plus the shared code. build_ghidra.py builds
 the same programs with seeds, entry points and analysis.
@@ -445,11 +464,8 @@ def prepare(firmware: Path, outdir: Path) -> int:
         ]
         for name, data, block, address in files:
             (outdir / name).write_bytes(data)
-            rows.append(
-                f"{spec.name:<14} {name:<30} {block:<24} 0x{address:06X}  "
-                f"0x{spec.address(address):06X}"
-            )
-    header = f"{'program':<14} {'file':<30} {'block':<24} {'word':<9} byte"
+            rows.append(f"{spec.name:<14} {name:<30} {block:<24} 0x{address:04X}")
+    header = f"{'program':<14} {'file':<30} {'block':<24} address"
     (outdir / "IMPORT.txt").write_text(IMPORT_GUIDE + "\n".join([header, *rows]) + "\n")
     print(f"{len(rows)} images and IMPORT.txt written to {outdir}")
     return 0

@@ -69,6 +69,9 @@ static const ifx_effect *find_effect(const char *name) {
   if (strcmp(name, ifx_effect_delay.name) == 0) {
     return &ifx_effect_delay;
   }
+  if (strcmp(name, ifx_effect_chorus8.name) == 0) {
+    return &ifx_effect_chorus8;
+  }
   return NULL;
 }
 
@@ -77,6 +80,7 @@ int main(int argc, char **argv) {
   unsigned count = 0;
   if (argc == 1) {
     effects[count++] = &ifx_effect_delay;
+    effects[count++] = &ifx_effect_chorus8;
   } else {
     for (int arg = 1; arg < argc; arg++) {
       const ifx_effect *effect = find_effect(argv[arg]);

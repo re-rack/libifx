@@ -28,8 +28,8 @@ static void chorus8_block(ifx_chorus8_state *state, const ifx_chorus8_config *co
                          config->coef[IFX_CHORUS8_COEF_DIRECT_LEFT],
                          config->coef[IFX_CHORUS8_COEF_DIRECT_RIGHT], direct_on, mixed_l, mixed_r);
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    out_l[i] = ifx_store24(ifx_word_acc(mixed_l[i]) - ifx_word_acc(IFX_MIXER_OFFSET));
-    out_r[i] = ifx_store24(ifx_word_acc(mixed_r[i]) - ifx_word_acc(IFX_MIXER_OFFSET));
+    out_l[i] = ifx_mixer_core_output(mixed_l[i]);
+    out_r[i] = ifx_mixer_core_output(mixed_r[i]);
   }
 }
 

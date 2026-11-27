@@ -121,6 +121,11 @@ static unsigned check_tables(void) {
     ifx_fixture_table index;
     ifx_fixture_get_table((const unsigned char *)index_records + (size_t)index_size * record,
                           &index);
+    if (index.first > word_count || index.count > word_count - index.first) {
+      detail("%s runs past the fixture's table words", index.name);
+      failed();
+      continue;
+    }
     if (strcmp(index.name, "mcu_window_table") == 0) {
       window = index;
       have_window = 1;
@@ -173,15 +178,15 @@ static unsigned check_tables(void) {
       const ifx_effect *effect = k_effects[e];
       for (unsigned knob = 0; knob < effect->knobs; knob++) {
         const ifx_effect_knob *record = &effect->knob[knob];
-        const uint32_t at = window.first + (uint32_t)record->param;
-        if (record->param < 0 || at >= word_count) {
+        if (record->param < 0 || (uint32_t)record->param >= window.count) {
           detail("%s %s: parameter %d is outside the window table", effect->name, record->name,
                  record->param);
           failed();
           continue;
         }
         const int32_t limit =
-            ifx_fixture_get_word((const unsigned char *)words + word_size * (size_t)at);
+            ifx_fixture_get_word((const unsigned char *)words +
+                                 word_size * (size_t)(window.first + (uint32_t)record->param));
         if (record->min != 0 || record->max + 1 != limit) {
           detail("%s %s: min %d max %d, window %d", effect->name, record->name, record->min,
                  record->max, (int)limit);

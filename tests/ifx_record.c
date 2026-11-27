@@ -37,13 +37,8 @@ static const table_source k_tables[] = {
 };
 
 #define TABLE_COUNT (sizeof k_tables / sizeof k_tables[0])
-#define WINDOW_EPROM_OFFSET 0x12C8u
-#define PRESET_BASE 0x2084u
-#define PRESET_BYTES 55u
 #define PRESET_FIRST 81u
 #define PRESET_LAST 160u
-#define PARAMETER_LISTS 0x320Fu
-#define PARAMETER_LIST_STRIDE 64u
 
 static int add_table(ifx_fixture_writer *writer, const char *name, uint32_t *first,
                      const int32_t *words, uint32_t count) {
@@ -84,26 +79,10 @@ static int record_tables(ifx_fixture_writer *writer, const ifx_emu *emu) {
   }
   free(words);
 
-  const char *path = ifx_emu_eprom_path(emu);
-  FILE *file = fopen(path, "rb");
-  if (file == NULL) {
-    fprintf(stderr, "tables: cannot open %s\n", path);
-    return -1;
-  }
-  if (fseek(file, (long)WINDOW_EPROM_OFFSET, SEEK_SET) != 0) {
-    fclose(file);
-    return -1;
-  }
-  uint8_t bytes[IFX_EMU_PARAMETER_COUNT];
-  int ok = fread(bytes, 1, sizeof bytes, file) == sizeof bytes;
-  fclose(file);
-  if (!ok) {
-    fprintf(stderr, "tables: %s ends before the parameter window table\n", path);
-    return -1;
-  }
+  const uint8_t *eprom = ifx_emu_eprom(emu);
   int32_t window[IFX_EMU_PARAMETER_COUNT];
   for (unsigned i = 0; i < IFX_EMU_PARAMETER_COUNT; i++) {
-    window[i] = bytes[i];
+    window[i] = eprom[IFX_EMU_WINDOW_TABLE + i];
   }
   return add_table(writer, "mcu_window_table", &first, window, IFX_EMU_PARAMETER_COUNT);
 }
@@ -195,39 +174,22 @@ static unsigned setup_vectors(const ifx_effect *effect, int32_t *vectors, unsign
   return count;
 }
 
-/* Read one factory preset of the effect's configuration as the knob table's values. */
-static int preset_values(const ifx_effect *effect, unsigned config, const char *eprom,
+/* One factory preset of the effect's configuration, as parameter bytes and as
+ * the knob table's values. */
+static int preset_values(const ifx_effect *effect, unsigned config, const ifx_emu *emu,
                          unsigned preset, int32_t *values, uint8_t bytes[IFX_EMU_PARAMETER_COUNT]) {
-  FILE *file = fopen(eprom, "rb");
-  if (file == NULL) {
+  unsigned preset_config = 0;
+  if (!ifx_emu_factory_preset(emu, preset, &preset_config, bytes) || preset_config != config) {
     return -1;
   }
-  uint8_t list[PARAMETER_LIST_STRIDE];
-  uint8_t record[PRESET_BYTES];
-  int ok = fseek(file, (long)(PARAMETER_LISTS + PARAMETER_LIST_STRIDE * config), SEEK_SET) == 0 &&
-           fread(list, 1, sizeof list, file) == sizeof list;
-  ok = ok &&
-       fseek(file, (long)(PRESET_BASE + PRESET_BYTES * (preset - PRESET_FIRST)), SEEK_SET) == 0 &&
-       fread(record, 1, sizeof record, file) == sizeof record;
-  fclose(file);
-  if (!ok || (record[0] & 7u) != config) {
-    return -1;
-  }
-  memset(bytes, 0, IFX_EMU_PARAMETER_COUNT);
-  memset(values, 0, effect->knobs * sizeof *values);
-  unsigned position = 1u;
-  for (unsigned i = 0; i < PARAMETER_LIST_STRIDE && list[i] != 0u; i++, position++) {
-    bytes[list[i]] = record[position];
-    if (position > effect->knobs) {
-      return -1;
-    }
-    values[position - 1u] = record[position];
+  for (unsigned knob = 0; knob < effect->knobs; knob++) {
+    values[knob] = bytes[effect->knob[knob].param];
   }
   return 0;
 }
 
-static int record_effect(const ifx_firmware_ops *ops, const char *path) {
-  const ifx_effect *effect = ops->effect;
+static int record_effect(const ifx_firmware *adapter, const char *path) {
+  const ifx_effect *effect = adapter->effect;
   unsigned knobs = effect->knobs;
   unsigned setup_count = 0;
   unsigned segments = 0;
@@ -238,7 +200,7 @@ static int record_effect(const ifx_firmware_ops *ops, const char *path) {
   ifx_segment *segment = NULL;
   ifx_fixture_writer writer;
   int writer_open = 0;
-  void *firmware = ifx_firmware_open(ops);
+  void *firmware = ifx_firmware_open(adapter);
   if (firmware == NULL) {
     return -1;
   }
@@ -298,11 +260,11 @@ static int record_effect(const ifx_firmware_ops *ops, const char *path) {
     setup_count++;
   }
 
-  const char *eprom = ifx_firmware_eprom_path(firmware);
   for (unsigned preset = PRESET_FIRST; preset <= PRESET_LAST; preset++) {
     uint8_t bytes[IFX_EMU_PARAMETER_COUNT];
     int32_t preset_knobs[64];
-    if (preset_values(effect, ops->config, eprom, preset, preset_knobs, bytes) != 0) {
+    if (preset_values(effect, adapter->config, ifx_firmware_emu(firmware), preset, preset_knobs,
+                      bytes) != 0) {
       continue;
     }
     if (ifx_firmware_load(firmware, bytes) != 0) {
@@ -321,7 +283,7 @@ static int record_effect(const ifx_firmware_ops *ops, const char *path) {
   }
 
   ifx_firmware_close(firmware);
-  firmware = ifx_firmware_open(ops);
+  firmware = ifx_firmware_open(adapter);
   if (firmware == NULL) {
     goto fail;
   }
@@ -471,14 +433,14 @@ int main(int argc, char **argv) {
            argv[2]);
     return 0;
   }
-  const ifx_firmware_ops *firmware_ops[] = {
+  const ifx_firmware *adapters[] = {
 #define IFX_FIRMWARE_POINTER(name) &ifx_firmware_##name,
       IFX_EFFECTS(IFX_FIRMWARE_POINTER)
 #undef IFX_FIRMWARE_POINTER
   };
-  for (unsigned i = 0; i < sizeof firmware_ops / sizeof firmware_ops[0]; i++) {
-    if (strcmp(argv[1], firmware_ops[i]->effect->name) == 0) {
-      return record_effect(firmware_ops[i], argv[2]) == 0 ? 0 : 1;
+  for (unsigned i = 0; i < sizeof adapters / sizeof adapters[0]; i++) {
+    if (strcmp(argv[1], adapters[i]->effect->name) == 0) {
+      return record_effect(adapters[i], argv[2]) == 0 ? 0 : 1;
     }
   }
   fprintf(stderr, "%s: nothing to record is called %s\n", argv[0], argv[1]);

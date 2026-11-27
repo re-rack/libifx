@@ -495,13 +495,11 @@ bool ifx_emu_factory_preset(const ifx_emu *emu, unsigned preset, unsigned *confi
   }
   const uint8_t *record =
       &emu->eprom[IFX_EMU_FACTORY_PRESETS + IFX_EMU_PRESET_BYTES * (preset - 81u)];
-  unsigned cfg = record[0] & 0x07u;
-  if (cfg >= 6u) {
-    cfg = 0u;
-  }
-  *config = cfg;
+  *config = record[0] & 0x07u;
+  const unsigned list_config = *config < 6u ? *config : 0u;
   memset(values, 0, IFX_EMU_PARAMETER_COUNT);
-  const uint8_t *list = &emu->eprom[IFX_EMU_PARAMETER_LISTS + IFX_EMU_PARAMETER_LIST_STRIDE * cfg];
+  const uint8_t *list =
+      &emu->eprom[IFX_EMU_PARAMETER_LISTS + IFX_EMU_PARAMETER_LIST_STRIDE * list_config];
   unsigned position = 1u;
   for (unsigned i = 0; i < IFX_EMU_PARAMETER_LIST_STRIDE && list[i] != 0u; ++i) {
     unsigned index = list[i];
@@ -550,7 +548,7 @@ bool ifx_emu_send(ifx_emu *emu, unsigned index, unsigned value) {
   if (emu == NULL || index >= IFX_EMU_PARAMETER_COUNT || !ifx_dsp_board_running(emu->dsp)) {
     return false;
   }
-  unsigned maximum = emu->eprom[IFX_EMU_MAX_TABLE + index];
+  unsigned maximum = emu->eprom[IFX_EMU_WINDOW_TABLE + index];
   if (maximum == 0u || value >= maximum) {
     return false;
   }
@@ -726,7 +724,7 @@ static bool load_preset(ifx_emu *emu, unsigned config,
     if (index >= IFX_EMU_PARAMETER_COUNT || position >= IFX_EMU_PRESET_BYTES) {
       return false;
     }
-    unsigned maximum = emu->eprom[IFX_EMU_MAX_TABLE + index];
+    unsigned maximum = emu->eprom[IFX_EMU_WINDOW_TABLE + index];
     if (maximum == 0u || values[index] >= maximum) {
       return false;
     }

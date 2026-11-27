@@ -37,11 +37,11 @@ writes `<path>.tmp` and renames it, so a failed run leaves the old file alone.
 | `IFX_FIX_OUTPUT` | one device output frame, 24-bit L and R words |
 | `IFX_FIX_TABLE_INDEX` / `_WORDS` | a lookup table's name, first word and words |
 
-`tables.bin` holds the eleven shared-image tables at `P:$07BE..$0A0F` as the DSP's
-P memory holds them after boot, the configuration-2 reverb type table included,
-and the MCU's 108-byte parameter window table at EPROM `0x12C8`. The shared-image
-tables prove that `src/ifx_tables.c` is the firmware's, word for word; the window
-table is the firmware's own exclusive maximum for each MCU parameter.
+`tables.bin` holds the library's eleven tables as the DSP's P memory holds them
+(the ten shared-image tables at `P:$07BE..$0A0F` and configuration 2's reverb type
+table at `P:$0172`), proving `src/ifx_tables.c` is the firmware's word for word,
+and the MCU's 108-byte window table at EPROM `0x12C8`, each parameter's exclusive
+maximum.
 
 An effect fixture holds its knob table, setup records for each knob on its own
 (every position when it has 32 or fewer, else 32 spread positions plus the
@@ -100,6 +100,8 @@ and regeneration whose limiter sum lands on its rounding boundary.
 
 ```
 make check                          every table, host and effect fixture
+make check-tables                   the tables fixture
+make check-host                     the context and the process entry points
 make check-fixture FIXTURE=delay    one effect fixture
 make record-fixture FIXTURE=delay   rewrite it from the firmware harness
 make record-all-fixtures            rewrite every fixture
@@ -110,9 +112,9 @@ make benchmark-fx FX=delay          one effect
 ## Adding an effect
 
 Describe it once: a knob table with each knob's MCU parameter, active value and
-default, and its native adapter in `tests/effect_<name>.c`, a firmware description
-of the configuration number and its setup record's DSP words in
-`tests/firmware_<name>.c`, and one line in `tests/ifx_effects.h`. Then `make record-fixture FIXTURE=<name>`,
+default, and its native adapter in `tests/effect_<name>.c`; the configuration
+number and its setup record's DSP words in `tests/firmware_<name>.c`; and one
+line in `tests/ifx_effects.h`. Then run `make record-fixture FIXTURE=<name>`,
 `make check` and `make coverage`, and prove the fixture by mutation: a constant
 off by one LSB, a rounding dropped or a branch changed in each new source must
 make `make check` fail.

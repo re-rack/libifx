@@ -22,9 +22,9 @@
 #define IFX_EMU_PARAMETER_COUNT 108u
 
 /* EPROM offsets of the tables the panel reads, as reverse_engineering/EFFECTS.md
- * records them: the per-parameter maximum table, the per-configuration parameter
- * lists (64 bytes each), and the word an idle mixer settles on. */
-#define IFX_EMU_MAX_TABLE 0x12C8u
+ * records them: the parameter windows' exclusive maxima, the per-configuration
+ * parameter lists (64 bytes each), and the word an idle mixer settles on. */
+#define IFX_EMU_WINDOW_TABLE 0x12C8u
 #define IFX_EMU_PARAMETER_LISTS 0x320Fu
 #define IFX_EMU_PARAMETER_LIST_STRIDE 64u
 #define IFX_EMU_REST_WORD 0x066666
@@ -107,11 +107,11 @@ void ifx_emu_button(ifx_emu *emu, ifx_mcu_board_button button, bool pressed);
 bool ifx_emu_recall(ifx_emu *emu, unsigned preset);
 bool ifx_emu_set_parameter(ifx_emu *emu, unsigned index, unsigned value);
 
-/* Factory preset `preset` (81..160): its configuration (0..5) in `config` and
- * its values indexed by parameter number, 0 for parameters the configuration
- * does not list. A record whose configuration byte is 6 or more reads as
- * configuration 0, as the firmware's recall does. False when the preset is out
- * of range. */
+/* Factory preset `preset` (81..160): its configuration byte (0..7) in `config`
+ * and its values indexed by parameter number, 0 for parameters the configuration
+ * does not list. The firmware's recall runs a byte of 6 or 7 as configuration
+ * 0, so configuration 0's list decodes it. False when the preset is out of
+ * range. */
 bool ifx_emu_factory_preset(const ifx_emu *emu, unsigned preset, unsigned *config,
                             uint8_t values[IFX_EMU_PARAMETER_COUNT]);
 

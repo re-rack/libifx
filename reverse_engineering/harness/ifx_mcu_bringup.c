@@ -567,7 +567,7 @@ static bool verify_factory(void) {
 #define IFX_TIMING_SETTLE_RUN 512u
 
 static unsigned timing_maximum(unsigned index) {
-  return index < IFX_EMU_PARAMETER_COUNT ? ifx_emu_eprom(g_emu)[IFX_EMU_MAX_TABLE + index] : 0u;
+  return index < IFX_EMU_PARAMETER_COUNT ? ifx_emu_eprom(g_emu)[IFX_EMU_WINDOW_TABLE + index] : 0u;
 }
 
 static bool timing_factory_values(unsigned config, uint8_t values[IFX_EMU_PARAMETER_COUNT]) {

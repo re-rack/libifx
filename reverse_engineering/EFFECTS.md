@@ -436,7 +436,13 @@ the firmware converts one: voice delays `78·v` per 2 ms step, predelay `39·v`,
 fit their manual maxima at that rate (16,320 words for 418 ms, 8,192 for 209 ms, 2 × 29,632 for
 1500 ms). In the harness, preset 84's echoes fall 196 samples apart per 5 ms DLY TIME step. The
 A/D's rate is CLKIN/128; 5 MHz would give 39,062.5 Hz. The oscillator's marking does not settle
-CLKIN.
+CLKIN, but the release tables are computed for exactly that rate: an entry is `10^(−1/N)`, N the
+32-frame blocks in the manual's time at 39,062.5 Hz, so the gain falls 20 dB in that time. Hush
+`P:$0890` runs from 30.52 to 976.8 blocks for 25 to 800 ms, the ducker's `P:$089A` from 244.1 to
+10,986 blocks for 0.2 to 9.0 s.
+
+In the harness a pass of configuration 4 takes about 12,700 DSP clock cycles and configuration 1's
+initialising pass 16,100, so a 32-frame block needs a DSP clock of about 20 MHz or more.
 
 ## Open
 

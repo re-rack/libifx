@@ -50,6 +50,32 @@ edge in normal mode as well as network mode, and clear `waitFrameRX` and
 which leaves a receiver that the firmware enables mid-frame waiting for a
 transition that never comes, and the firmware never runs network mode.
 
+## Checked against the DSP56001
+
+- No recording makes the core report an illegal instruction, a stack error or
+  an unpredictable modulo update, and the firmware never sets a scaling mode.
+- `dsp_core.instr_cycle` counts DSP clock cycles, two per instruction cycle.
+- Every opcode word the firmware executes while the fixtures are recorded,
+  apart from `do`, `rep`, calls, returns, `movep` and `andi`, was run once from
+  20,000 random states beside the independent dsp56300 emulator
+  (`/usr/local/include/dsp56300.h`): 798 words, with registers, memory,
+  address updates and the N, Z, U and E flags in agreement.
+- The firmware executes no move to an address register that the next
+  instruction uses, so the core's partial model of that pipeline delay is
+  never in play.
+
+Deviations from the DSP56000/DSP56001 User's Manual that this found, none of
+which the firmware reaches:
+
+- A2 or B2 read as a source is zero extended, not sign extended (manual
+  7.2.2.1). The firmware's one such move, `move a2,b1` in configurations 0 and
+  4, always reads an A2 between 1 and 5.
+- `addl` sets C from the shift as well as from the add, and `macr`, `mpyr`
+  and `rnd` leave V clear when the rounding itself overflows the accumulator.
+  No executed instruction reads C, and every `lt`, `ge`, `gt` and `le` test
+  follows a `cmp`, `cmpm`, `add` or `sub`.
+- Reset leaves SR at 0 instead of `$0300`.
+
 ## Build glue
 
 - `ifx_hatari_glue.h` stands in for `main.h`, `log.h`, `debugui.h`,

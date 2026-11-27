@@ -63,8 +63,10 @@ frames, so the impulse at the end of cycle 2 runs into a quiet stretch of 80
 blocks, long enough for the reverb gate's shortest hold. A per-effect list of
 extra scripted turns (`ifx_effect_extra`) runs after the generated segments:
 `tests/effect_reverb.c` uses it to raise RV HF DAMP while the gate holds a gain
-staged with REVERB DECAY 99 and no damping, and `tests/effect_chorus8.c` uses it
-to walk the voice sweeps into the phase re-sync.
+staged with REVERB DECAY 99 and no damping, `tests/effect_delay.c` to mute the
+delay under each MUTE TYPE while the lines hold signal, and the chorus and pitch
+effects to walk the voice sweeps into the phase re-sync and to set levels, pans
+and regeneration whose limiter sum lands on its rounding boundary.
 
 ## How the checker compares
 

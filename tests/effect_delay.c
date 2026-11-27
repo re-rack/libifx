@@ -54,4 +54,21 @@ static void delay_words(const ifx_delay_config *config, int32_t *words) {
   }
 }
 
-IFX_EFFECT_DEFINE(delay, delay, k_knobs, delay_raw, delay_words, DELAY_SETUP_WORDS, NULL, 0)
+static const ifx_effect_extra k_extra[] = {
+    {12, 58, 0},   /* REGEN 1 */
+    {16, 58, 0},   /* REGEN 2 */
+    {11, 9, 0},    /* DLY TIME1 */
+    {15, 6, 4096}, /* DLY TIME2 */
+    {8, 1, 0},     /* MUTE TYPE POST */
+    {7, 0, 6000},  /* DELAY muted */
+    {7, 1, 6000},  /* DELAY active */
+    {8, 2, 0},     /* MUTE TYPE BOTH */
+    {7, 0, 6000},  /* DELAY muted */
+    {7, 1, 6000},  /* DELAY active */
+    {8, 0, 0},     /* MUTE TYPE PRE */
+    {7, 0, 6000},  /* DELAY muted */
+    {7, 1, 6000},  /* DELAY active */
+};
+
+IFX_EFFECT_DEFINE(delay, delay, k_knobs, delay_raw, delay_words, DELAY_SETUP_WORDS, k_extra,
+                  sizeof k_extra / sizeof k_extra[0])

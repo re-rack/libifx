@@ -104,9 +104,10 @@ static void chorus_reverb_words(const ifx_chorus_reverb_config *config, int32_t 
 /* The phase re-sync needs a slow sweep into the filter pointer's window, and
  * the reverb input and Hush paths need their off states. */
 static const ifx_effect_extra k_extra[] = {
-    {14, 1, 64},    {19, 1, 64},   {24, 1, 64},   {29, 1, 64},  {16, 0, 64},  {21, 0, 64},
-    {26, 0, 64},    {31, 0, 64},   {15, 80, 64},  {20, 80, 64}, {25, 80, 64}, {30, 80, 64},
-    {16, 0, 65536}, {36, 0, 2048}, {36, 1, 2048}, {9, 0, 2048}, {9, 1, 2048},
+    {14, 1, 64},    {19, 1, 64},   {24, 1, 64},   {29, 1, 64},  {16, 0, 64},   {21, 0, 64},
+    {26, 0, 64},    {31, 0, 64},   {15, 80, 64},  {20, 80, 64}, {25, 80, 64},  {30, 80, 64},
+    {16, 0, 65536}, {36, 0, 2048}, {36, 1, 2048}, {9, 0, 2048}, {9, 1, 2048},  {18, 12, 64},
+    {27, 52, 64},   {23, 80, 64},  {17, 43, 64},  {22, 27, 64}, {8, 37, 1024}, {7, 51, 4096},
 };
 
 IFX_EFFECT_DEFINE(chorus_reverb, chorus_reverb, k_knobs, chorus_reverb_raw, chorus_reverb_words,

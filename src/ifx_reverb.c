@@ -3,27 +3,19 @@
 #include "ifx_dsp_math.h"
 #include "ifx_mixer_core.h"
 #include "ifx_mixer_design.h"
-#include "ifx_tables.h"
+#include "ifx_reverb_net_core.h"
 
 enum {
   PREDELAY_M = 0x1FFF,
   PREDELAY_START = 0x2000,
   REVERB_M = 0x7FBA,
-  BLOCK_MASK = 0x1F,
   LOWPASS_COEF = 0x028F5C,
-  TAP_COEF = 0x400000,
+  LINES = 4,
+  TAP_GAIN = 0x400000, /* 0.5 */
   GATE_LIMIT = 0x7FFCB9,
-  BLOCK_BASE_LEFT = 0,
-  BLOCK_BASE_RIGHT = 1,
+  INPUT_LEFT = 0x20,
+  INPUT_RIGHT = 0x28,
 };
-
-static int32_t load_word(const int32_t *memory, uint32_t address) {
-  return memory[address & 0xFFFFu];
-}
-
-static int64_t load_acc(const int32_t *memory, uint32_t address) {
-  return ifx_word_acc(load_word(memory, address));
-}
 
 /* P:$00D6..$00F8: the delay memory write filter; LOW FREQ adds the filtered
  * low band to the input, and the predelay ring advances one word a sample. */
@@ -54,118 +46,10 @@ static void read_predelay(const ifx_reverb_state *state, const ifx_reverb_config
   const int32_t pan_left = config->coef[IFX_REVERB_COEF_PAN_LEFT];
   const int32_t pan_right = config->coef[IFX_REVERB_COEF_PAN_RIGHT];
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    left[i] = ifx_store24(ifx_mpyr(pan_left, load_word(state->memory, r2)));
+    left[i] = ifx_store24(ifx_mpyr(pan_left, state->memory[r2]));
     r2 = ifx_agu_step(r2, 1, PREDELAY_M);
-    right[i] = ifx_store24(ifx_mpyr(pan_right, load_word(state->memory, r3)));
+    right[i] = ifx_store24(ifx_mpyr(pan_right, state->memory[r3]));
     r3 = ifx_agu_step(r3, 1, PREDELAY_M);
-  }
-}
-
-/* P:$0139..$0148: four two-word allpass lines over one 32-word block. */
-static void allpass_block(ifx_reverb_state *state, const int32_t block[IFX_BLOCK_FRAMES],
-                          unsigned base) {
-  unsigned index = base;
-  unsigned sample = 0;
-  for (unsigned line = 0; line < 4u; line++) {
-    uint32_t r2 = (uint32_t)state->table[index] & 0xFFFFu;
-    const int32_t c = ifx_s24((uint32_t)state->table[index + 1u]);
-    int64_t a = load_acc(state->memory, r2);
-    r2 = ifx_agu_step(r2, 1, REVERB_M);
-    int32_t y0 = block[sample];
-    sample = (sample + 1u) & BLOCK_MASK;
-    for (unsigned pair = 0; pair < 16u; pair++) {
-      int64_t b = load_acc(state->memory, r2);
-      r2 = ifx_agu_step(r2, -1, REVERB_M);
-      a = ifx_macr(a, y0, c);
-      state->memory[r2] = ifx_store24(a);
-      r2 = ifx_agu_step(r2, 2, REVERB_M);
-      a = load_acc(state->memory, r2);
-      r2 = ifx_agu_step(r2, -1, REVERB_M);
-      const int32_t y1 = block[sample];
-      sample = (sample + 1u) & BLOCK_MASK;
-      b = ifx_macr(b, c, y1);
-      state->memory[r2] = ifx_store24(b);
-      r2 = ifx_agu_step(r2, 2, REVERB_M);
-      y0 = block[sample];
-      sample = (sample + 1u) & BLOCK_MASK;
-    }
-    r2 = ifx_agu_step(r2, -1, REVERB_M);
-    sample = (sample - 1u) & BLOCK_MASK;
-    state->table[index] = (int32_t)r2;
-    index += 2u;
-  }
-}
-
-/* P:$0149..$0159: four delay taps at half gain, summed into one block. */
-static void tap_block(const ifx_reverb_state *state, int32_t block[IFX_BLOCK_FRAMES],
-                      unsigned base) {
-  uint32_t r2 = (uint32_t)state->table[base] & 0xFFFFu;
-  uint32_t r3 = (uint32_t)state->table[base + 2u] & 0xFFFFu;
-  uint32_t r4 = (uint32_t)state->table[base + 4u] & 0xFFFFu;
-  uint32_t r5 = (uint32_t)state->table[base + 6u] & 0xFFFFu;
-  unsigned sample = BLOCK_MASK;
-  int32_t x0 = load_word(state->memory, r2);
-  r2 = ifx_agu_step(r2, 1, REVERB_M);
-  int64_t previous = 0;
-  for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    block[sample] = ifx_store24(previous);
-    sample = (sample + 1u) & BLOCK_MASK;
-    int64_t a = ifx_mpy(TAP_COEF, x0);
-    x0 = load_word(state->memory, r3);
-    r3 = ifx_agu_step(r3, 1, REVERB_M);
-    a = ifx_mac(a, TAP_COEF, x0);
-    x0 = load_word(state->memory, r4);
-    r4 = ifx_agu_step(r4, 1, REVERB_M);
-    a = ifx_mac(a, TAP_COEF, x0);
-    x0 = load_word(state->memory, r5);
-    r5 = ifx_agu_step(r5, 1, REVERB_M);
-    a = ifx_macr(a, TAP_COEF, x0);
-    x0 = load_word(state->memory, r2);
-    r2 = ifx_agu_step(r2, 1, REVERB_M);
-    previous = a;
-  }
-  block[sample] = ifx_store24(previous);
-}
-
-/* P:$015A..$0171: four damped allpass lines over one 32-word block. */
-static void allpass_damped_block(ifx_reverb_state *state, const int32_t block[IFX_BLOCK_FRAMES],
-                                 unsigned base, int32_t gain, int32_t damp) {
-  unsigned index = base;
-  for (unsigned line = 0; line < 4u; line++) {
-    uint32_t r2 = (uint32_t)state->table[index] & 0xFFFFu;
-    uint32_t r5 = (uint32_t)state->table[index + 1u] & 0xFFFFu;
-    unsigned sample = 0;
-    int32_t y0 = block[sample];
-    sample = (sample + 1u) & BLOCK_MASK;
-    r5 = ifx_agu_step(r5, -1, REVERB_M);
-    int32_t x0 = load_word(state->memory, r5);
-    r5 = ifx_agu_step(r5, 1, REVERB_M);
-    int64_t a = ifx_mpy(gain, y0);
-    a = ifx_mac(a, damp, x0);
-    x0 = load_word(state->memory, r2);
-    r2 = ifx_agu_step(r2, 1, REVERB_M);
-    a = ifx_macr(a, -x0, gain);
-    y0 = block[sample];
-    sample = (sample + 1u) & BLOCK_MASK;
-    int64_t previous = a;
-    for (unsigned i = 1u; i < IFX_BLOCK_FRAMES; i++) {
-      a = ifx_mpy(gain, y0);
-      state->memory[r5] = ifx_store24(previous);
-      r5 = ifx_agu_step(r5, 1, REVERB_M);
-      x0 = ifx_store24(previous);
-      a = ifx_mac(a, damp, x0);
-      x0 = load_word(state->memory, r2);
-      r2 = ifx_agu_step(r2, 1, REVERB_M);
-      a = ifx_macr(a, -x0, gain);
-      y0 = block[sample];
-      sample = (sample + 1u) & BLOCK_MASK;
-      previous = a;
-    }
-    state->memory[r5] = ifx_store24(previous);
-    r5 = ifx_agu_step(r5, 1, REVERB_M);
-    state->table[index] = (int32_t)r2;
-    state->table[index + 1u] = (int32_t)r5;
-    index += 2u;
   }
 }
 
@@ -178,23 +62,20 @@ static void process_reverb(ifx_reverb_state *state, const ifx_reverb_config *con
   write_predelay(state, config, hush);
   read_predelay(state, config, base, left, right);
 
-  allpass_block(state, left, 0x20u);
-  allpass_block(state, right, 0x28u);
+  ifx_reverb_net_core_allpass(&state->table[INPUT_LEFT], state->memory, left, LINES, REVERB_M);
+  ifx_reverb_net_core_allpass(&state->table[INPUT_RIGHT], state->memory, right, LINES, REVERB_M);
 
   const int32_t damp = config->coef[IFX_REVERB_COEF_DAMP];
   if (ifx_es(ifx_add24(ifx_word_acc(state->gate_gain), damp))) {
     state->gate_gain = ifx_store24(ifx_sub24(ifx_word_acc(GATE_LIMIT), damp));
   }
-  const int32_t gain = state->gate_gain;
-
-  tap_block(state, left, 0x00u);
-  allpass_damped_block(state, left, 0x00u, gain, damp);
-  tap_block(state, right, 0x08u);
-  allpass_damped_block(state, right, 0x08u, gain, damp);
-  tap_block(state, left, 0x10u);
-  allpass_damped_block(state, left, 0x10u, gain, damp);
-  tap_block(state, right, 0x18u);
-  allpass_damped_block(state, right, 0x18u, gain, damp);
+  for (unsigned stage = 0; stage < 4u; stage++) {
+    int32_t *const block = (stage & 1u) == 0u ? left : right;
+    int32_t *const lines = &state->table[2u * LINES * stage];
+    ifx_reverb_net_core_taps(lines, state->memory, LINES, TAP_GAIN, REVERB_M, block);
+    ifx_reverb_net_core_damped(lines, state->memory, block, LINES, damp, state->gate_gain,
+                               REVERB_M);
+  }
 
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
     state->wet_left[i] = left[i];
@@ -202,7 +83,10 @@ static void process_reverb(ifx_reverb_state *state, const ifx_reverb_config *con
   }
 }
 
-static int32_t gate_block(ifx_reverb_state *state, const ifx_reverb_config *config, int32_t level) {
+/* P:$00B7..$00D5: the gate keeps the feedback word while the block level
+ * reaches GATE THRESH and for HOLD TIME blocks after, then decays it a block
+ * at a time. */
+static void gate_block(ifx_reverb_state *state, const ifx_reverb_config *config, int32_t level) {
   if ((config->coef[IFX_REVERB_COEF_FLAGS] & IFX_REVERB_FLAG_GATE) == 0) {
     state->gate_gain = config->coef[IFX_REVERB_COEF_FEEDBACK];
   } else if (ifx_abs56(ifx_word_acc(config->coef[IFX_REVERB_COEF_GATE_THRESHOLD])) >
@@ -217,7 +101,6 @@ static int32_t gate_block(ifx_reverb_state *state, const ifx_reverb_config *conf
     state->gate_gain = config->coef[IFX_REVERB_COEF_FEEDBACK];
     state->gate_hold = config->coef[IFX_REVERB_COEF_GATE_HOLD];
   }
-  return state->gate_gain;
 }
 
 static void init_config(ifx_reverb_state *state, const ifx_reverb_config *config) {
@@ -234,48 +117,35 @@ static void init_config(ifx_reverb_state *state, const ifx_reverb_config *config
 static void reverb_block(ifx_reverb_state *state, const ifx_reverb_config *config,
                          const int32_t in[IFX_BLOCK_FRAMES], int32_t out_l[IFX_BLOCK_FRAMES],
                          int32_t out_r[IFX_BLOCK_FRAMES]) {
-  if (state->wipe.active != 0) {
-    ifx_wipe_core_call(&state->wipe, state->memory, state->wet_left, state->wet_right);
+  const int32_t flags = config->coef[IFX_REVERB_COEF_FLAGS];
+  ifx_wipe_core_pass(&state->wipe, state->memory, state->wet_left, state->wet_right);
+  if (config->coef[IFX_REVERB_COEF_TYPE] != state->type) {
+    state->type = config->coef[IFX_REVERB_COEF_TYPE];
+    ifx_wipe_core_restart(&state->wipe);
   }
 
-  const int32_t type = config->coef[IFX_REVERB_COEF_TYPE];
-  if (type != state->type) {
-    state->type = type;
-    if (state->wipe.init_pending == 0) {
-      ifx_wipe_core_restart(&state->wipe);
-    }
-  }
-
-  int32_t level = 0;
   int32_t front[IFX_BLOCK_FRAMES];
   int32_t hush[IFX_BLOCK_FRAMES];
+  int32_t level = 0;
   ifx_front_core_process(&state->front, in, front, &level);
   ifx_hush_core_process(
       &state->hush, front, hush, level, config->coef[IFX_REVERB_COEF_HUSH_THRESHOLD],
       config->coef[IFX_REVERB_COEF_HUSH_SLOPE], config->coef[IFX_REVERB_COEF_HUSH_RELEASE],
-      (config->coef[IFX_REVERB_COEF_FLAGS] & IFX_MIXER_FLAG_HUSH) != 0);
+      (flags & IFX_MIXER_DESIGN_FLAG_HUSH) != 0);
 
-  if (state->wipe.skip_pass != 0) {
-    state->wipe.skip_pass = 0;
-  } else if (state->wipe.active == 0) {
-    if (state->wipe.init_pending != 0) {
-      state->wipe.init_pending = 0;
-      init_config(state, config);
-    }
+  const ifx_wipe_core_step step = ifx_wipe_core_next(&state->wipe);
+  if (step == IFX_WIPE_CORE_INIT) {
+    init_config(state, config);
+  }
+  if (step != IFX_WIPE_CORE_SKIP) {
     gate_block(state, config, level);
     process_reverb(state, config, hush);
   }
 
-  int32_t mixed_l[IFX_BLOCK_FRAMES];
-  int32_t mixed_r[IFX_BLOCK_FRAMES];
-  const int direct_on = (config->coef[IFX_REVERB_COEF_FLAGS] & IFX_MIXER_FLAG_DIRECT) != 0;
   ifx_mixer_core_process(state->wet_left, state->wet_right, hush, config->coef[IFX_REVERB_COEF_WET],
                          config->coef[IFX_REVERB_COEF_DIRECT_LEFT],
-                         config->coef[IFX_REVERB_COEF_DIRECT_RIGHT], direct_on, mixed_l, mixed_r);
-  for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    out_l[i] = ifx_mixer_core_output(mixed_l[i]);
-    out_r[i] = ifx_mixer_core_output(mixed_r[i]);
-  }
+                         config->coef[IFX_REVERB_COEF_DIRECT_RIGHT],
+                         (flags & IFX_MIXER_DESIGN_FLAG_DIRECT) != 0, out_l, out_r);
 }
 
 void ifx_reverb_state_init(ifx_reverb_state *state, const ifx_reverb_config *config) {
@@ -290,7 +160,7 @@ void ifx_reverb_state_init(ifx_reverb_state *state, const ifx_reverb_config *con
   ifx_hush_core_state_init(&state->hush);
   state->type = config->coef[IFX_REVERB_COEF_TYPE];
   init_config(state, config);
-  ifx_wipe_core_init(&state->wipe);
+  ifx_wipe_core_state_init(&state->wipe);
   ifx_process_block_init(&state->block);
 }
 

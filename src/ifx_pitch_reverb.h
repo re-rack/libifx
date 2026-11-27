@@ -1,9 +1,10 @@
 /* Intellifex LTD configuration 1: Hush; Pitch Shift; Delay; Reverb.
  *
- * The configuration at P:$00A0: two pitch voices and the Delay 3 voice write
- * the delay lines, the ducker rides their levels, and the reverb network at
- * $C000 feeds on the input and the delay returns. Hush, the front and the
- * mixer are the shared routines.
+ * The configuration at P:$00A0: the pitch network with two voices and the
+ * Delay 3 voice writing the voice bus or the L/R delay lines, the reverb
+ * network at $C000 fed by the input and the delay returns, and the output mix
+ * of bus, delay and reverb that the ducker rides. The front, Hush and the
+ * mixer are shared.
  */
 #ifndef IFX_PITCH_REVERB_H
 #define IFX_PITCH_REVERB_H
@@ -34,7 +35,7 @@ enum {
   IFX_PITCH_REVERB_COEF_HUSH_SLOPE,     /* X:$0007 */
   IFX_PITCH_REVERB_COEF_HUSH_RELEASE,   /* X:$0009 */
   IFX_PITCH_REVERB_COEF_VOICES,         /* Y:$0EC0..$0ED7: two pitch voices and Delay 3 */
-  IFX_PITCH_REVERB_COEF_DUCKER = IFX_PITCH_REVERB_COEF_VOICES + 3 * 8,
+  IFX_PITCH_REVERB_COEF_DUCKER = IFX_PITCH_REVERB_COEF_VOICES + 3 * 8, /* Y:$002B: DUCKER */
   IFX_PITCH_REVERB_COEF_DUCK_THRESHOLD, /* Y:$0026: SENSITIVITY */
   IFX_PITCH_REVERB_COEF_DUCK_ATTEN,     /* Y:$0027: ATTENUATION */
   IFX_PITCH_REVERB_COEF_DUCK_RELEASE,   /* Y:$0028: RELEASE RATE */
@@ -47,7 +48,7 @@ enum {
   IFX_PITCH_REVERB_COEF_COUNT
 };
 
-enum { IFX_PITCH_REVERB_FLAG_REV_INPUT = 1u << 17 };
+enum { IFX_PITCH_REVERB_FLAG_REV_INPUT = 1 << 17 }; /* X:$0000 bit 17: REV INPUT active */
 
 typedef struct {
   int32_t coef[IFX_PITCH_REVERB_COEF_COUNT];
@@ -55,13 +56,11 @@ typedef struct {
 
 typedef struct {
   int32_t memory[0x10000]; /* the DSP's one external array, addressed as Y: */
-  int32_t wet_left[IFX_BLOCK_FRAMES];  /* Y:$0F40..$0F5F */
-  int32_t wet_right[IFX_BLOCK_FRAMES]; /* Y:$0F60..$0F7F */
   ifx_front_core_state front;
   ifx_hush_core_state hush;
-  ifx_pitch_core_state pitch;
   ifx_ducker_core_state ducker;
-  ifx_reverb_net_state reverb_net;
+  ifx_pitch_core_state pitch;
+  ifx_reverb_net_core_state reverb;
   ifx_process_block block;
 } ifx_pitch_reverb_state;
 

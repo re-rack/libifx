@@ -1,8 +1,8 @@
 /* Intellifex LTD configuration 4: Hush; 8 Voice Chorus; Delay.
  *
- * The configuration at P:$00A0: eight LFO voices read a smoothed delay
- * history and write into two rotating delay lines, with the regeneration
- * limiter over their pan gains. Hush, the front and the mixer are shared.
+ * The configuration at P:$00A0: the chorus network with eight LFO voices,
+ * whose L/R delay lines' oldest block is the wet signal. The front, Hush and
+ * the mixer are shared.
  */
 #ifndef IFX_CHORUS8_H
 #define IFX_CHORUS8_H
@@ -40,8 +40,6 @@ typedef struct {
   ifx_front_core_state front;
   ifx_hush_core_state hush;
   ifx_chorus_core_state chorus;
-  int32_t wet_left[IFX_BLOCK_FRAMES];  /* Y:$0F40..$0F5F */
-  int32_t wet_right[IFX_BLOCK_FRAMES]; /* Y:$0F60..$0F7F */
   ifx_process_block block;
 } ifx_chorus8_state;
 

@@ -1,9 +1,8 @@
 /* Intellifex LTD configuration 5: Hush; Pitch Shift; Delay.
  *
- * The configuration at P:$00A0: four pitch voices, two grains each, reading a
- * filtered delay history and writing into two rotating delay lines, with the
- * regeneration limiter over their pan gains. Hush, the front and the mixer are
- * shared.
+ * The configuration at P:$00A0: the pitch network with four voices, whose
+ * L/R delay lines' oldest block is the wet signal. The front, Hush and the
+ * mixer are shared.
  */
 #ifndef IFX_PITCH_H
 #define IFX_PITCH_H
@@ -41,8 +40,6 @@ typedef struct {
   ifx_front_core_state front;
   ifx_hush_core_state hush;
   ifx_pitch_core_state pitch;
-  int32_t wet_left[IFX_BLOCK_FRAMES];  /* Y:$0F40..$0F5F */
-  int32_t wet_right[IFX_BLOCK_FRAMES]; /* Y:$0F60..$0F7F */
   ifx_process_block block;
 } ifx_pitch_state;
 

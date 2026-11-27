@@ -9,10 +9,10 @@ enum {
 
 void ifx_front_core_state_init(ifx_front_core_state *state) { state->lp = 0; }
 
-void ifx_front_core_process(ifx_front_core_state *state, const int32_t in[32], int32_t out[32],
-                            int32_t *level) {
+void ifx_front_core_process(ifx_front_core_state *state, const int32_t in[IFX_BLOCK_FRAMES],
+                            int32_t out[IFX_BLOCK_FRAMES], int32_t *level) {
   int64_t largest = 0;
-  for (unsigned i = 0; i < 32u; i++) {
+  for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
     const int32_t x = in[i];
     int64_t b = ifx_mpy(LP_COEF, state->lp);
     b = ifx_macr(b, IN_COEF, x);

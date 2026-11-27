@@ -7,7 +7,7 @@
 #include "ifx_reverb.h"
 
 typedef struct {
-  int effect_level;     /* 0..58: REVERB LVL */
+  int reverb_level;     /* 0..58: REVERB LVL */
   int direct_left;      /* 0..58: L DIR LVL */
   int direct_right;     /* 0..58: R DIR LVL */
   int direct_hush;      /* 0..1: PRE or POST */

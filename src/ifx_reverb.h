@@ -1,9 +1,10 @@
 /* Intellifex LTD configuration 2: Hush; Reverb.
  *
- * The configuration at P:$00A0 with its eight reverb types. The reverb network
- * is this configuration's own: a predelay ring, a per-type 48-word pointer and
- * coefficient table, four tap/allpass stages per channel, and the gate on the
- * reverb decay. Hush, the mixer and the memory wipe are the shared routines.
+ * The configuration at P:$00A0 with its eight reverb types: a predelay ring
+ * with the LOW FREQ write filter, a per-type 48-word pointer and coefficient
+ * table driving the shared reverb lines (four allpass input lines per channel,
+ * then four stages of four taps and four damped lines), and the gate on the
+ * reverb decay. The front, Hush, the mixer and the memory wipe are shared.
  */
 #ifndef IFX_REVERB_H
 #define IFX_REVERB_H
@@ -14,6 +15,7 @@
 #include "ifx_front_core.h"
 #include "ifx_hush_core.h"
 #include "ifx_process.h"
+#include "ifx_tables.h"
 #include "ifx_wipe_core.h"
 
 /* The words the configuration reads, staged by the message handlers. */
@@ -40,7 +42,7 @@ enum {
   IFX_REVERB_COEF_COUNT
 };
 
-enum { IFX_REVERB_FLAG_GATE = 1u << 9 };
+enum { IFX_REVERB_FLAG_GATE = 1 << 9 }; /* X:$0000 bit 9: GATE on */
 
 typedef struct {
   int32_t coef[IFX_REVERB_COEF_COUNT];
@@ -52,13 +54,13 @@ typedef struct {
   int32_t wet_right[IFX_BLOCK_FRAMES]; /* Y:$0F60..$0F7F */
   ifx_front_core_state front;
   ifx_hush_core_state hush;
-  int32_t table[0x30]; /* X:$40..$6F: the selected type's pointers and coefficients */
-  int32_t type;        /* Y:$000a: the live reverb type */
-  int32_t gate_gain;   /* Y:$000b: the gate's decay word, or GATE DECAY when shut */
-  int32_t gate_hold;   /* Y:$000c: HOLD TIME countdown, in blocks */
-  uint32_t write;      /* Y:$000d: predelay ring write pointer */
-  int32_t lowpass;     /* Y:$002c: the LOW FREQ filter state */
-  ifx_wipe_core wipe;
+  int32_t table[IFX_REVERB_TYPE_TABLE_WORDS]; /* X:$40..$6F: the type's pairs, advanced in place */
+  int32_t type; /* Y:$000a: the live reverb type */
+  int32_t gate_gain; /* Y:$000b: the gate's decay word, or GATE DECAY when shut */
+  int32_t gate_hold; /* Y:$000c: HOLD TIME countdown, in blocks */
+  uint32_t write; /* Y:$000d: predelay ring write pointer */
+  int32_t lowpass; /* Y:$002c: the LOW FREQ filter state */
+  ifx_wipe_core_state wipe;
   ifx_process_block block;
 } ifx_reverb_state;
 

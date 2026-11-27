@@ -42,12 +42,10 @@ static inline uint32_t ifx_agu_step(uint32_t address, int32_t delta, uint32_t m)
   return reg & 0xFFFFu;
 }
 
-/* 24-bit word <-> signed value. */
+/* A 24-bit word as a signed value. */
 static inline int32_t ifx_s24(uint32_t word) {
   return (int32_t)((word & 0xFFFFFFu) ^ 0x800000u) - 0x800000;
 }
-
-static inline uint32_t ifx_u24(int32_t value) { return (uint32_t)value & 0xFFFFFFu; }
 
 /* Wrap into the signed 56-bit accumulator range. */
 static inline int64_t ifx_acc56(int64_t value) {
@@ -163,6 +161,26 @@ static inline int32_t ifx_a1(int64_t acc) { return (int32_t)(((uint64_t)acc >> 2
 static inline int32_t ifx_a0(int64_t acc) { return (int32_t)((uint64_t)acc & 0xFFFFFFu); }
 
 static inline int32_t ifx_a2(int64_t acc) { return (int32_t)(((uint64_t)acc >> 48) & 0xFFu); }
+
+/* `move a1,x0` and `move a0,x0`: the field as a signed word, never limited. */
+static inline int32_t ifx_move_a1(int64_t acc) { return ifx_s24((uint32_t)ifx_a1(acc)); }
+
+static inline int32_t ifx_move_a0(int64_t acc) { return ifx_s24((uint32_t)ifx_a0(acc)); }
+
+/* A move into one field of an accumulator; the other fields keep their bits. */
+static inline int64_t ifx_set_a2(int64_t acc, int32_t word) {
+  return ifx_acc56((acc & 0xFFFFFFFFFFFFLL) | ((int64_t)(word & 0xFF) * 0x1000000000000LL));
+}
+
+static inline int64_t ifx_set_a1(int64_t acc, int32_t word) {
+  const uint64_t u = (uint64_t)acc & 0xFF000000FFFFFFULL;
+  return ifx_acc56((int64_t)(u | ((uint64_t)(uint32_t)(word & 0xFFFFFF) << 24)));
+}
+
+static inline int64_t ifx_set_a0(int64_t acc, int32_t word) {
+  const uint64_t u = (uint64_t)acc & 0xFFFFFFFF000000ULL;
+  return ifx_acc56((int64_t)(u | (uint32_t)(word & 0xFFFFFF)));
+}
 
 /* A move out of an accumulator with its extension in use limits to the 24-bit
  * range; otherwise it stores A1. This is what `move a,x0` and `move a,x:ea`

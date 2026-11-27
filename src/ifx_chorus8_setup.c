@@ -36,41 +36,30 @@ enum {
   RATE_MAX = 255,
 };
 
-static int clamp(int value, int minimum, int maximum) {
-  return value < minimum ? minimum : value > maximum ? maximum : value;
-}
-
 int ifx_chorus8_setup_config(const ifx_context *context, const ifx_chorus8_setup_raw *raw,
                              ifx_chorus8_config *config) {
   if (raw == NULL || config == NULL || ifx_context_rate(context) == 0.0) {
     return -1;
   }
 
-  const int chorus_level = clamp(raw->chorus_level, CHORUS_LEVEL_MIN, CHORUS_LEVEL_MAX - 1);
-  const int direct_left = clamp(raw->direct_left, DIRECT_LEFT_MIN, DIRECT_LEFT_MAX - 1);
-  const int direct_right = clamp(raw->direct_right, DIRECT_RIGHT_MIN, DIRECT_RIGHT_MAX - 1);
-  const int direct_hush = clamp(raw->direct_hush, DIRECT_HUSH_MIN, DIRECT_HUSH_MAX - 1);
-  const int regen_left = clamp(raw->regen_left, REGEN_LEFT_MIN, REGEN_LEFT_MAX - 1);
-  const int regen_right = clamp(raw->regen_right, REGEN_RIGHT_MIN, REGEN_RIGHT_MAX - 1);
-  const int hush = clamp(raw->hush, HUSH_MIN, HUSH_MAX - 1);
-  const int hush_threshold = clamp(raw->hush_threshold, HUSH_THRESHOLD_MIN, HUSH_THRESHOLD_MAX - 1);
-  const int hush_release = clamp(raw->hush_release, HUSH_RELEASE_MIN, HUSH_RELEASE_MAX - 1);
+  const int chorus_level = ifx_window(raw->chorus_level, CHORUS_LEVEL_MIN, CHORUS_LEVEL_MAX);
+  const int direct_left = ifx_window(raw->direct_left, DIRECT_LEFT_MIN, DIRECT_LEFT_MAX);
+  const int direct_right = ifx_window(raw->direct_right, DIRECT_RIGHT_MIN, DIRECT_RIGHT_MAX);
+  const int direct_hush = ifx_window(raw->direct_hush, DIRECT_HUSH_MIN, DIRECT_HUSH_MAX);
+  const int regen_left = ifx_window(raw->regen_left, REGEN_LEFT_MIN, REGEN_LEFT_MAX);
+  const int regen_right = ifx_window(raw->regen_right, REGEN_RIGHT_MIN, REGEN_RIGHT_MAX);
+  const int hush = ifx_window(raw->hush, HUSH_MIN, HUSH_MAX);
+  const int hush_threshold =
+      ifx_window(raw->hush_threshold, HUSH_THRESHOLD_MIN, HUSH_THRESHOLD_MAX);
+  const int hush_release = ifx_window(raw->hush_release, HUSH_RELEASE_MIN, HUSH_RELEASE_MAX);
 
   ifx_hush_design_words hush_words;
   ifx_hush_design_words_make(hush_threshold, hush_release, &hush_words);
 
-  unsigned x_flags = 0;
-  if (hush != 0) {
-    x_flags |= IFX_MIXER_FLAG_HUSH;
-  }
-  if (direct_hush != 0) {
-    x_flags |= IFX_MIXER_FLAG_DIRECT;
-  }
-
   config->coef[IFX_CHORUS8_COEF_WET] = ifx_mixer_design_level(chorus_level);
   config->coef[IFX_CHORUS8_COEF_DIRECT_LEFT] = ifx_mixer_design_level(direct_left);
   config->coef[IFX_CHORUS8_COEF_DIRECT_RIGHT] = ifx_mixer_design_level(direct_right);
-  config->coef[IFX_CHORUS8_COEF_FLAGS] = (int32_t)x_flags;
+  config->coef[IFX_CHORUS8_COEF_FLAGS] = ifx_mixer_design_flags(hush, direct_hush);
   config->coef[IFX_CHORUS8_COEF_HUSH_THRESHOLD] = hush_words.threshold;
   config->coef[IFX_CHORUS8_COEF_HUSH_SLOPE] = hush_words.slope;
   config->coef[IFX_CHORUS8_COEF_HUSH_RELEASE] = hush_words.release;
@@ -94,11 +83,11 @@ int ifx_chorus8_setup_config(const ifx_context *context, const ifx_chorus8_setup
       {raw->level8, raw->pan8, raw->delay8, raw->depth8, raw->rate8},
   };
   for (unsigned voice = 0; voice < 8u; voice++) {
-    const int level = clamp(voices[voice].level, LEVEL_MIN, LEVEL_MAX - 1);
-    const int pan = clamp(voices[voice].pan, PAN_MIN, PAN_MAX - 1);
-    const int delay = clamp(voices[voice].delay, DELAY_MIN, DELAY_MAX - 1);
-    const int depth = clamp(voices[voice].depth, DEPTH_MIN, DEPTH_MAX - 1);
-    const int rate = clamp(voices[voice].rate, RATE_MIN, RATE_MAX - 1);
+    const int level = ifx_window(voices[voice].level, LEVEL_MIN, LEVEL_MAX);
+    const int pan = ifx_window(voices[voice].pan, PAN_MIN, PAN_MAX);
+    const int delay = ifx_window(voices[voice].delay, DELAY_MIN, DELAY_MAX);
+    const int depth = ifx_window(voices[voice].depth, DEPTH_MIN, DEPTH_MAX);
+    const int rate = ifx_window(voices[voice].rate, RATE_MIN, RATE_MAX);
     ifx_chorus_design_voice(level, pan, delay, depth, rate,
                             &config->coef[IFX_CHORUS8_COEF_VOICES + 8u * voice]);
   }

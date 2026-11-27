@@ -2,7 +2,8 @@
  *
  * The configuration at P:$00A0 with its three delay types: Stereo (two mono
  * lines), Ping-Pong (cross-fed mono lines) and 2-Tap (one interleaved line at
- * half the pointer rate). The ducker and the mixer are the shared routines.
+ * half the pointer rate, under the regeneration limiter). The front, Hush, the
+ * ducker, the mixer and the memory wipe are shared.
  */
 #ifndef IFX_DELAY_H
 #define IFX_DELAY_H
@@ -14,9 +15,8 @@
 #include "ifx_front_core.h"
 #include "ifx_hush_core.h"
 #include "ifx_process.h"
+#include "ifx_regen_core.h"
 #include "ifx_wipe_core.h"
-
-#define IFX_DELAY_LINE_WORDS 0x73C0u
 
 /* The words the configuration reads, staged by the message handlers, in the
  * configuration's parameter order. */
@@ -45,14 +45,14 @@ enum {
   IFX_DELAY_COEF_COUNT
 };
 
-/* Delay flag bits in Y:$0018. */
+/* Y:$0018: DELAY, MUTE TYPE and D TYPE. */
 enum {
-  IFX_DELAY_ON = 1 << 0,
-  IFX_DELAY_MUTE_PRE = 1 << 1,
-  IFX_DELAY_MUTE_POST = 1 << 2,
-  IFX_DELAY_TYPE_STEREO = 1 << 3,
-  IFX_DELAY_TYPE_PINGPONG = 1 << 4,
-  IFX_DELAY_TYPE_2TAP = 1 << 5,
+  IFX_DELAY_FLAG_ON = 1 << 0,
+  IFX_DELAY_FLAG_MUTE_PRE = 1 << 1,
+  IFX_DELAY_FLAG_MUTE_POST = 1 << 2,
+  IFX_DELAY_FLAG_STEREO = 1 << 3,
+  IFX_DELAY_FLAG_PINGPONG = 1 << 4,
+  IFX_DELAY_FLAG_2TAP = 1 << 5,
 };
 
 typedef struct {
@@ -66,16 +66,13 @@ typedef struct {
   ifx_front_core_state front;
   ifx_hush_core_state hush;
   ifx_ducker_core_state ducker;
-  uint32_t write1; /* Y:$0015: line 1 pointer, or the 2-Tap pair pointer */
-  uint32_t write2; /* Y:$0016: line 2 pointer */
-  int32_t damp1;   /* Y:$002C: line 1 damping state */
-  int32_t damp2;   /* Y:$002D: line 2 damping state */
-  int32_t regen1;  /* the live Y:$0024 word */
-  int32_t regen2;  /* the live Y:$0025 word */
-  int32_t staged_regen1;
-  int32_t staged_regen2;
-  int32_t delay_flags; /* Y:$0018: the live delay, mute and type bits */
-  ifx_wipe_core wipe;
+  ifx_regen_core_state regen; /* Y:$0024/$0025 */
+  uint32_t write1;            /* Y:$0015: line 1 pointer, or the 2-Tap pair pointer */
+  uint32_t write2;            /* Y:$0016: line 2 pointer */
+  int32_t damp1;              /* Y:$002C: line 1 damping state */
+  int32_t damp2;              /* Y:$002D: line 2 damping state */
+  int32_t delay_flags;        /* Y:$0018: the live delay, mute and type bits */
+  ifx_wipe_core_state wipe;
   ifx_process_block block;
 } ifx_delay_state;
 

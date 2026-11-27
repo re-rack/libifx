@@ -1,5 +1,5 @@
 /* The pitch voice message handlers' math: one voice block at Y:$0EC0 + 8*v
- * from PITCH, FINE, LEVEL, PAN and DELAY. Configurations 5 and 1 share it. */
+ * from PITCH, FINE, LEVEL, PAN and DELAY. Configurations 1 and 5 share it. */
 #ifndef IFX_PITCH_DESIGN_H
 #define IFX_PITCH_DESIGN_H
 

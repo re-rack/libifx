@@ -1,6 +1,5 @@
 /* The chorus voice message handlers' math: one voice block at Y:$0EC0 + 8*v
- * from LEVEL, PAN, DELAY, DEPTH and RATE. Configurations 0, 1, 4 and 5 share it.
- */
+ * from LEVEL, PAN, DELAY, DEPTH and RATE. Configurations 0 and 4 share it. */
 #ifndef IFX_CHORUS_DESIGN_H
 #define IFX_CHORUS_DESIGN_H
 

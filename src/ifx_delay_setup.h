@@ -7,7 +7,7 @@
 #include "ifx_delay.h"
 
 typedef struct {
-  int effect_level;        /* 0..58: DELAY LVL */
+  int delay_level;         /* 0..58: DELAY LVL */
   int direct_left;         /* 0..58: L DIR LVL */
   int direct_right;        /* 0..58: R DIR LVL */
   int direct_hush;         /* 0..1: PRE or POST */

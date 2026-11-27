@@ -11,14 +11,14 @@ enum {
 
 void ifx_hush_core_state_init(ifx_hush_core_state *state) { state->gain = 0; }
 
-void ifx_hush_core_process(ifx_hush_core_state *state, const int32_t in[32], int32_t out[32],
-                           int32_t level, int32_t threshold, int32_t slope, int32_t release,
-                           int hush_on) {
+void ifx_hush_core_process(ifx_hush_core_state *state, const int32_t in[IFX_BLOCK_FRAMES],
+                           int32_t out[IFX_BLOCK_FRAMES], int32_t level, int32_t threshold,
+                           int32_t slope, int32_t release, int hush_on) {
   int64_t b = ifx_word_acc(UNITY);
   if (ifx_abs56(ifx_word_acc(threshold)) > ifx_abs56(ifx_word_acc(level))) {
     int64_t a = ifx_mpy(level, slope);
     a = ifx_asr_n(a, 8u);
-    b = ifx_word_acc(ifx_a0(a));
+    b = ifx_word_acc(ifx_move_a0(a));
   }
 
   const int32_t target = ifx_store24(b);
@@ -43,7 +43,7 @@ void ifx_hush_core_process(ifx_hush_core_state *state, const int32_t in[32], int
   }
   const int32_t shape = ifx_store24(gain);
   const int32_t multiplier = ifx_store24(ifx_mpyr(GAIN_TRIM, shape));
-  for (unsigned i = 0; i < 32u; i++) {
+  for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
     out[i] = ifx_store24(ifx_mpyr(multiplier, in[i]));
   }
 }

@@ -29,7 +29,7 @@ static const ifx_effect_knob k_knobs[REVERB_KNOBS] = {
 
 static void reverb_raw(const int32_t *values, ifx_reverb_setup_raw *raw) {
   *raw = (ifx_reverb_setup_raw){
-      .effect_level = (int)values[0],
+      .reverb_level = (int)values[0],
       .direct_left = (int)values[1],
       .direct_right = (int)values[2],
       .direct_hush = (int)values[3],

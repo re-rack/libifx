@@ -596,7 +596,7 @@ static unsigned check_host(void) {
 /* --- effect fixtures ---------------------------------------------------- */
 
 static int32_t expected_word(int32_t device_word) {
-  int32_t value = device_word - IFX_MIXER_OFFSET;
+  int32_t value = device_word - IFX_MIXER_CORE_OFFSET;
   if (value > IFX_W24_MAX) {
     value = IFX_W24_MAX;
   } else if (value < IFX_W24_MIN) {

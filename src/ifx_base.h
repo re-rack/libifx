@@ -1,5 +1,5 @@
-/* The names every module shares: the block size and the host's sample-rate
- * context. */
+/* The names every module shares: the block size, the host's sample-rate
+ * context and the knob windows. */
 #ifndef IFX_BASE_H
 #define IFX_BASE_H
 
@@ -28,6 +28,15 @@ static inline double ifx_context_rate(const ifx_context *context) {
     return 0.0;
   }
   return context->rate;
+}
+
+/* A raw knob forced into the MCU's window: `minimum` up to the exclusive
+ * `maximum` the firmware's window table holds. */
+static inline int ifx_window(int value, int minimum, int maximum) {
+  if (value < minimum) {
+    return minimum;
+  }
+  return value >= maximum ? maximum - 1 : value;
 }
 
 #endif /* IFX_BASE_H */

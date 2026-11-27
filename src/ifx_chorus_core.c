@@ -7,29 +7,25 @@
 enum {
   HISTORY_BASE = 0x40,
   HISTORY_M = IFX_REGEN_CORE_HISTORY_WORDS - 1u,
-  TAP6_BASE = 0x38,
-  TAP6_M = 0x05,
   FILTER6_M = 0x1FFF,
-  SWEEP_BASE = 0x40,
-  SWEEP_M = 0x3F,
   SWEEP_WINDOW = 0x2000, /* the voices read the filter history at $2000 + phase */
   LFO_M = 0x1F,
   LINE_L = 0x4000,
   LINE_R = 0x8000,
 };
 
-static const uint32_t k_tap16[16] = {
-    0xFF3CF4, 0x01A200, 0xFD019B, 0x051074, 0xF7B8BF, 0x0DBEE3, 0xE66E91, 0x50F1EB,
-    0x50F1EB, 0xE66E91, 0x0DBEE3, 0xF7B8BF, 0x051074, 0xFD019B, 0x01A200, 0xFF3CF4,
+static const int32_t k_tap16[16] = {
+    -0xC30C,  0x1A200,   -0x2FE65, 0x51074,  -0x84741, 0xDBEE3,  -0x19916F, 0x50F1EB,
+    0x50F1EB, -0x19916F, 0xDBEE3,  -0x84741, 0x51074,  -0x2FE65, 0x1A200,   -0xC30C,
 };
 
-static const uint32_t k_tap6[6] = {0x02B57B, 0xF07752, 0x4CD3AE, 0x4CD3AE, 0xF07752, 0x02B57B};
+static const int32_t k_tap6[6] = {0x2B57B, -0xF88AE, 0x4CD3AE, 0x4CD3AE, -0xF88AE, 0x2B57B};
 
-static const uint32_t k_lfo[32] = {
-    0x19999A, 0x30A3D7, 0x428F5C, 0x547AE1, 0x6147AE, 0x68F5C3, 0x70A3D7, 0x770A3D,
-    0x7AE148, 0x7D70A4, 0x7851EC, 0x6F5C29, 0x600000, 0x4B851F, 0x347AE1, 0x1AE148,
-    0xE66666, 0xCF5C29, 0xBD70A4, 0xAB851F, 0x9EB852, 0x970A3D, 0x8F5C29, 0x88F5C3,
-    0x851EB8, 0x828F5C, 0x87AE14, 0x90A3D7, 0xA00000, 0xB47AE1, 0xCB851F, 0xE51EB8,
+static const int32_t k_lfo[32] = {
+    0x19999A,  0x30A3D7,  0x428F5C,  0x547AE1,  0x6147AE,  0x68F5C3,  0x70A3D7,  0x770A3D,
+    0x7AE148,  0x7D70A4,  0x7851EC,  0x6F5C29,  0x600000,  0x4B851F,  0x347AE1,  0x1AE148,
+    -0x19999A, -0x30A3D7, -0x428F5C, -0x547AE1, -0x6147AE, -0x68F5C3, -0x70A3D7, -0x770A3D,
+    -0x7AE148, -0x7D70A4, -0x7851EC, -0x6F5C29, -0x600000, -0x4B851F, -0x347AE1, -0x1AE148,
 };
 
 /* P:$010A: the 16-tap filter over the history into the filter ring, each
@@ -39,16 +35,21 @@ static void filter16(ifx_chorus_core_state *state, const ifx_chorus_core_layout 
                      int32_t memory[0x10000]) {
   uint32_t r1 = state->history_write;
   uint32_t r5 = state->filter_write;
+  /* The filter ring is a power-of-two window, so its mask is the modulo. */
+  const uint32_t m = layout->filter_m;
+  const uint32_t stride = (uint32_t)layout->filter_stride;
   for (unsigned out = 0; out < IFX_BLOCK_FRAMES; out++) {
     int64_t a = 0;
-    for (unsigned tap = 0; tap < 15u; tap++) {
-      a += ifx_product(ifx_s24(k_tap16[tap]), state->history[(r1 - tap) & HISTORY_M]);
+    for (unsigned tap = 0; tap < 7u; tap++) {
+      a += ifx_product(k_tap16[tap], state->history[(r1 - tap) & HISTORY_M] +
+                                         state->history[(r1 - (15u - tap)) & HISTORY_M]);
     }
-    a = ifx_macr(a, ifx_s24(k_tap16[15]), state->history[(r1 - 15u) & HISTORY_M]);
+    a = ifx_macr(a, k_tap16[7],
+                 state->history[(r1 - 7u) & HISTORY_M] + state->history[(r1 - 8u) & HISTORY_M]);
     memory[r5] = state->history[(r1 - 8u) & HISTORY_M];
-    r5 = ifx_agu_step(r5, layout->filter_stride, layout->filter_m);
+    r5 = (r5 & ~m) | ((r5 + stride) & m);
     memory[r5] = ifx_store24(a);
-    r5 = ifx_agu_step(r5, layout->filter_stride, layout->filter_m);
+    r5 = (r5 & ~m) | ((r5 + stride) & m);
     r1 = ifx_agu_step(r1, 1, HISTORY_M);
   }
   state->filter_write = r5;
@@ -58,25 +59,18 @@ static void filter16(ifx_chorus_core_state *state, const ifx_chorus_core_layout 
 /* P:$011E: configuration 4's 6-tap filter over every other word of the ring. */
 static void filter6(ifx_chorus_core_state *state, int32_t memory[0x10000]) {
   uint32_t r3 = state->filter_read;
-  uint32_t r4 = r3;
-  uint32_t r1 = TAP6_BASE;
   uint32_t r5 = state->filter2_write;
   for (unsigned out = 0; out < 2u * IFX_BLOCK_FRAMES; out++) {
+    uint32_t r4 = r3;
+    uint32_t r6 = ifx_agu_step(r3, 10, FILTER6_M);
     int64_t a = 0;
-    int32_t x0 = ifx_s24(k_tap6[r1 - TAP6_BASE]);
-    r1 = ifx_agu_step(r1, 1, TAP6_M);
-    int32_t y0 = memory[r4];
-    r4 = ifx_agu_step(r4, 2, FILTER6_M);
-    for (unsigned tap = 0; tap < 5u; tap++) {
-      a = ifx_mac(a, y0, x0);
-      x0 = ifx_s24(k_tap6[r1 - TAP6_BASE]);
-      r1 = ifx_agu_step(r1, 1, TAP6_M);
-      y0 = memory[r4];
+    for (unsigned tap = 0; tap < 2u; tap++) {
+      a += ifx_product(k_tap6[tap], memory[r4] + memory[r6]);
       r4 = ifx_agu_step(r4, 2, FILTER6_M);
+      r6 = ifx_agu_step(r6, -2, FILTER6_M);
     }
-    a = ifx_macr(a, y0, x0);
+    a = ifx_macr(a, k_tap6[2], memory[r4] + memory[r6]);
     r3 = ifx_agu_step(r3, 2, FILTER6_M);
-    r4 = r3;
     memory[r5] = ifx_store24(a);
     r5 = ifx_agu_step(r5, 2, FILTER6_M);
   }
@@ -84,11 +78,11 @@ static void filter6(ifx_chorus_core_state *state, int32_t memory[0x10000]) {
   state->filter2_write = r5;
 }
 
-/* P:$0132..$017E: resynchronise a voice's LFO near the filter pointer, advance
- * it, and build the 32 sweep pointer pairs its reads follow. */
+/* P:$0132..$018B: resynchronise a voice's LFO near the filter pointer, advance
+ * it, and read the 32 interpolated taps its sweep points at. */
 static void sweep_voice(const ifx_chorus_core_state *state, const ifx_chorus_core_layout *layout,
-                        const int32_t voice[8], int32_t phase[4],
-                        int32_t sweep[2u * IFX_BLOCK_FRAMES]) {
+                        const int32_t voice[8], int32_t phase[4], const int32_t memory[0x10000],
+                        int32_t out[IFX_BLOCK_FRAMES]) {
   const uint32_t filter = layout->clamp_filter2 != 0 ? state->filter2_write : state->filter_write;
   int64_t a = ifx_word_acc((int32_t)filter - SWEEP_WINDOW);
   a = ifx_sub(a, ifx_word_acc(phase[0]));
@@ -106,39 +100,33 @@ static void sweep_voice(const ifx_chorus_core_state *state, const ifx_chorus_cor
   a = ifx_asr(ifx_lsl_a1(a));
   const int32_t fraction = ifx_move_a0(a);
   r4 = ifx_agu_step(r4, layout->lfo_base, LFO_M);
-  a = ifx_word_acc(ifx_s24(k_lfo[r4 & LFO_M]));
+  a = ifx_word_acc(k_lfo[r4 & LFO_M]);
   r4 = ifx_agu_step(r4, 1, LFO_M);
   a = ifx_mac(a, -fraction, ifx_move_a1(a));
-  a = ifx_macr(a, ifx_s24(k_lfo[r4 & LFO_M]), fraction);
+  a = ifx_macr(a, k_lfo[r4 & LFO_M], fraction);
   int64_t b = ifx_mpyr(ifx_move_a1(a), voice[1]);
   if (layout->extra_asr != 0) {
     b = ifx_asr(b);
   }
   a = ifx_add(ifx_set_a2(0, layout->extra_asr != 0 ? 2 : 4), b);
-  b = ifx_set_a1(ifx_set_a0(0, ifx_a1(a)), ifx_a2(a));
-
-  a = ifx_set_a0(ifx_set_a1(0, phase[0]), phase[1]);
+  const uint32_t step_low = (uint32_t)ifx_a1(a);
+  const uint32_t step_high = (uint32_t)ifx_a2(a);
+  uint32_t index = (uint32_t)phase[0] & 0xFFFFFFu;
+  uint32_t low = (uint32_t)phase[1] & 0xFFFFFFu;
+  const uint32_t m = layout->sweep_m;
+  /* The sweep ring is a power-of-two window, so its mask is the modulo. */
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    a = ifx_and_a1(ifx_acc56(a + b), (int32_t)layout->sweep_m);
-    sweep[2u * i] = ifx_move_a1(a);
-    sweep[2u * i + 1u] = ifx_move_a0(a);
+    low += step_low;
+    index = (index + step_high + (low >> 24)) & m;
+    low &= 0xFFFFFFu;
+    const int32_t tap_fraction = (int32_t)(low >> 1);
+    /* $2000 is a whole number of sweep windows, so the base add steps linearly. */
+    const int32_t y0 = memory[index + SWEEP_WINDOW];
+    const int32_t y1 = memory[((index + 1u) & m) + SWEEP_WINDOW];
+    out[i] = ifx_store24(ifx_round24(ifx_word_acc(y0) + ifx_product(y1 - y0, tap_fraction)));
   }
-  phase[0] = ifx_move_a1(a);
-  phase[1] = ifx_move_a0(a);
-}
-
-/* P:$017F..$018B: the 32 interpolated reads of the filter history. */
-static void read_voice(const ifx_chorus_core_layout *layout, const int32_t memory[0x10000],
-                       const int32_t sweep[2u * IFX_BLOCK_FRAMES], int32_t out[IFX_BLOCK_FRAMES]) {
-  for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    const int32_t fraction = ifx_move_a1(ifx_lsr_a1(ifx_set_a1(0, sweep[2u * i + 1u])));
-    uint32_t r5 = ifx_agu_step((uint32_t)sweep[2u * i], SWEEP_WINDOW, layout->sweep_m);
-    int64_t a = ifx_word_acc(memory[r5]);
-    r5 = ifx_agu_step(r5, 1, layout->sweep_m);
-    a = ifx_mac(a, -fraction, ifx_move_a1(a));
-    a = ifx_macr(a, memory[r5], fraction);
-    out[i] = ifx_store24(a);
-  }
+  phase[0] = (int32_t)index;
+  phase[1] = ifx_s24(low);
 }
 
 void ifx_chorus_core_state_init(ifx_chorus_core_state *state, const ifx_chorus_core_layout *layout,
@@ -177,10 +165,8 @@ void ifx_chorus_core_process(ifx_chorus_core_state *state, const ifx_chorus_core
   }
   for (unsigned v = 0; v < layout->voices; v++) {
     const int32_t *const voice = &voices[8u * v];
-    int32_t sweep[2u * IFX_BLOCK_FRAMES];
     int32_t out[IFX_BLOCK_FRAMES];
-    sweep_voice(state, layout, voice, state->phase[v], sweep);
-    read_voice(layout, memory, sweep, out);
+    sweep_voice(state, layout, voice, state->phase[v], memory, out);
     ifx_regen_core_add(memory, layout->voice_bus != 0 ? state->voice_bus : NULL, state->read_l,
                        state->read_r, voice[3], voice[6], voice[7], out);
   }

@@ -214,7 +214,8 @@ void ifx_delay_state_init(ifx_delay_state *state, const ifx_delay_config *config
   init_config(state);
   state->delay_flags = config->coef[IFX_DELAY_COEF_DELAY_FLAGS];
   ifx_wipe_core_state_init(&state->wipe);
-  ifx_analog_core_state_init(&state->analog, config->output_gain);
+  ifx_analog_core_state_init(&state->analog, config->direct_latch[0], config->direct_latch[1],
+                             config->output_gain);
   ifx_process_block_init(&state->block);
 }
 

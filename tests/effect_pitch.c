@@ -1,5 +1,7 @@
 #include "ifx_effect.h"
 #include "ifx_pitch.h"
+#include "ifx_pitch_alt.h"
+#include "ifx_pitch_alt_setup.h"
 #include "ifx_pitch_setup.h"
 
 #define PITCH_KNOBS 29u
@@ -77,3 +79,10 @@ static const ifx_effect_extra k_extra[] = {
 };
 
 IFX_EFFECT_DEFINE(pitch, pitch, k_knobs, pitch_raw, k_extra, sizeof k_extra / sizeof k_extra[0])
+
+static uint32_t pitch_alt_hold(const int32_t *from, const int32_t *to) {
+  return ifx_effect_voices_hold(&from[IFX_PITCH_COEF_VOICES], &to[IFX_PITCH_COEF_VOICES], 4u);
+}
+
+IFX_EFFECT_DEFINE_ALT(pitch_alt, pitch_alt, k_knobs, pitch_raw, k_extra,
+                      sizeof k_extra / sizeof k_extra[0], pitch_alt_hold)

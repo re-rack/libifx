@@ -677,10 +677,44 @@ static int64_t analog_gain(const analog_setting *setting) {
   return ((int64_t)level * 0x10000 + 50) / 100;
 }
 
+#define ANALOG_RAMP_FRAMES 1024
+
+/* The two latches in 2^-16 units and the gain, gliding together: a new target
+ * restarts the ramp from where they are, along a smoothstep over
+ * ANALOG_RAMP_FRAMES. */
+typedef struct {
+  int64_t level[3];
+  int64_t from[3];
+  int64_t to[3];
+  int64_t pos;
+} analog_ramp;
+
+static void analog_ramp_target(analog_ramp *ramp, const analog_setting *setting) {
+  const int64_t target[3] = {analog_latch(setting, setting->left) * 0x10000,
+                             analog_latch(setting, setting->right) * 0x10000, analog_gain(setting)};
+  if (memcmp(target, ramp->to, sizeof target) != 0) {
+    memcpy(ramp->from, ramp->level, sizeof ramp->from);
+    memcpy(ramp->to, target, sizeof ramp->to);
+    ramp->pos = 0;
+  }
+}
+
+static void analog_ramp_step(analog_ramp *ramp) {
+  if (ramp->pos == ANALOG_RAMP_FRAMES) {
+    return;
+  }
+  const int64_t x = ++ramp->pos;
+  const int64_t share = x * x * (3 * ANALOG_RAMP_FRAMES - 2 * x); /* in 2^-30 units */
+  for (unsigned word = 0; word < 3u; word++) {
+    ramp->level[word] =
+        ramp->from[word] + (((ramp->to[word] - ramp->from[word]) * share + (1 << 29)) >> 30);
+  }
+}
+
 /* Two instances on the same input and turns: one with the analog stages as
  * every fixture runs them (direct off, output 100 %), one as scheduled. The
  * second must be the first plus the dry, saturated, then scaled by the
- * output gain ramping over each block. */
+ * output gain, the latches and the gain gliding to each block's setting. */
 static void check_analog_effect(const ifx_effect *effect, unsigned *high, unsigned *low) {
   const int knob[3] = {analog_find(effect, 3), analog_find(effect, 4), analog_find(effect, 5)};
   if (knob[0] < 0 || knob[1] < 0 || knob[2] < 0) {
@@ -725,18 +759,21 @@ static void check_analog_effect(const ifx_effect *effect, unsigned *high, unsign
       block[frame / IFX_BLOCK_FRAMES + 1u] = current;
     }
   }
+  analog_ramp ramp = {.pos = ANALOG_RAMP_FRAMES};
+  analog_ramp_target(&ramp, &block[0]);
+  memcpy(ramp.level, ramp.to, sizeof ramp.level);
+  ramp.pos = ANALOG_RAMP_FRAMES;
   for (uint32_t frame = 0; frame < ANALOG_FRAMES; frame++) {
     int32_t expect[2] = {want[frame][0], want[frame][1]};
     if (frame >= IFX_BLOCK_FRAMES) {
-      const analog_setting *setting = &block[frame / IFX_BLOCK_FRAMES];
+      if (frame % IFX_BLOCK_FRAMES == 0u) {
+        analog_ramp_target(&ramp, &block[frame / IFX_BLOCK_FRAMES]);
+      }
+      analog_ramp_step(&ramp);
       const int64_t dry = -(int64_t)ifx_s24((uint32_t)in[frame - IFX_BLOCK_FRAMES]);
-      const int32_t latch[2] = {analog_latch(setting, setting->left),
-                                analog_latch(setting, setting->right)};
-      const int64_t from = analog_gain(&block[frame / IFX_BLOCK_FRAMES - 1u]);
-      const int64_t to = analog_gain(setting);
-      const int64_t gain = from + (((to - from) * (frame % IFX_BLOCK_FRAMES + 1u)) >> 5);
+      const int64_t gain = ramp.level[2];
       for (unsigned side = 0; side < 2u; side++) {
-        int64_t sum = want[frame][side] + ((dry * latch[side] + 128) >> 8);
+        int64_t sum = want[frame][side] + ((dry * ramp.level[side] + (1 << 23)) >> 24);
         if (sum > IFX_W24_MAX) {
           (*high)++;
           sum = IFX_W24_MAX;
@@ -1185,6 +1222,401 @@ static unsigned check_effect(const ifx_effect *effect) {
   return ok ? 0 : 1;
 }
 
+/* --- the de-popped variants: their definition, and the effect's output ----- */
+
+/* Frames after a variant's last turn by which it plays its effect's output
+ * again: its longest hold, a D TYPE turn to 2-Tap at the longest DLY TIME
+ * (the wipe and 58,800 frames), and two fades, with room. Each hold then
+ * compares its last ALT_COMPARE_FRAMES. */
+#define ALT_SETTLE_FRAMES 64000u
+#define ALT_COMPARE_FRAMES 4096u
+#define ALT_SWEEP_STEPS 16u
+#define ALT_SWEEP_FRAMES 128u
+#define ALT_FAST_TURNS 10u
+#define ALT_FAST_FRAMES 64u
+#define ALT_CHUNK_MAX 300u
+#define ALT_ENTRY_POINTS 4u
+#define ALT_KNOBS_MAX 64u
+#define ALT_FADE_FRAMES 1024
+#define ALT_SOURCES 3u
+#define ALT_NONE ALT_SOURCES
+
+#define IFX_ALT_PAIR(name, alt) {&ifx_effect_##name, &ifx_effect_##alt},
+static const ifx_effect *const k_alt_effects[][2] = {IFX_ALT_EFFECTS(IFX_ALT_PAIR)};
+#undef IFX_ALT_PAIR
+
+/* The knobs a source runs with: the table's and the analog stages'. */
+typedef struct {
+  int32_t values[ALT_KNOBS_MAX];
+  int analog_direct;
+  int output_level;
+} alt_knobs;
+
+/* The variant's definition, run beside it on the effect's adapter: source 0 is
+ * the effect, sources 1 and 2 clones of it that keep the knobs it ran with
+ * before a turn. A turn while the effect is heard clones it first; the output
+ * fades from the clone to the effect along a smoothstep of ALT_FADE_FRAMES
+ * once the effect has passed the turn's hold. */
+typedef struct {
+  void *source[ALT_SOURCES]; /* the clones; source 0 is the run's `exact` */
+  alt_knobs ran; /* the knobs the effect ran its last block with */
+  unsigned from;
+  unsigned to;
+  int64_t pos;
+  uint32_t wait;
+  unsigned block_pos;
+} alt_model;
+
+typedef struct {
+  const ifx_effect *effect;
+  const ifx_effect *alt;
+  void *exact;
+  void *own;
+  alt_knobs knobs; /* as last turned */
+  alt_model model;
+  int direct_knob[3]; /* L DIR LVL, R DIR LVL and DIRECT HUSH */
+  int32_t *words[2];
+  ifx_signal signal;
+  uint32_t seed;
+  size_t compared;
+  size_t departed; /* frames where the variant played anything but the effect */
+  unsigned entry;  /* the entry point the next buffer goes through */
+  int broken;      /* a mismatch was reported: the rest of the run is not compared */
+} alt_run;
+
+/* The latches and the gain the analog stages take from a set of knobs. */
+static void alt_analog_words(const alt_run *run, const alt_knobs *knobs, int64_t words[3]) {
+  const analog_setting setting = {
+      (int)knobs->values[run->direct_knob[0]], (int)knobs->values[run->direct_knob[1]],
+      (int)knobs->values[run->direct_knob[2]], knobs->analog_direct, knobs->output_level};
+  words[0] = analog_latch(&setting, setting.left);
+  words[1] = analog_latch(&setting, setting.right);
+  words[2] = analog_gain(&setting);
+}
+
+/* Whether the knobs turned since the effect's last block, as its config
+ * sees them, and the turn's hold. */
+static int alt_model_turned(alt_run *run, uint32_t *hold) {
+  int64_t before[3];
+  int64_t after[3];
+  if (run->effect->setup(run->model.ran.values, run->words[0]) != 0 ||
+      run->effect->setup(run->knobs.values, run->words[1]) != 0) {
+    return 0;
+  }
+  alt_analog_words(run, &run->model.ran, before);
+  alt_analog_words(run, &run->knobs, after);
+  if (memcmp(run->words[0], run->words[1], run->effect->setup_words * sizeof *run->words[0]) == 0 &&
+      memcmp(before, after, sizeof before) == 0) {
+    return 0;
+  }
+  *hold = run->alt->alt_hold(run->words[0], run->words[1]);
+  return 1;
+}
+
+/* A clone of the effect with the knobs it ran its last block with. */
+static void *alt_model_clone(alt_run *run) {
+  void *clone = run->effect->clone(run->exact);
+  if (clone == NULL) {
+    return NULL;
+  }
+  for (unsigned knob = 0; knob < run->effect->knobs; knob++) {
+    if (run->effect->set_knob(clone, knob, (int)run->model.ran.values[knob]) != 0) {
+      run->effect->close(clone);
+      return NULL;
+    }
+  }
+  if (run->effect->set_analog(clone, run->model.ran.analog_direct, run->model.ran.output_level) !=
+      0) {
+    run->effect->close(clone);
+    return NULL;
+  }
+  return clone;
+}
+
+/* The model through `count` frames: the effect's output to `want`, the
+ * variant's by definition to `model`. */
+static int alt_model_play(alt_run *run, const int32_t *in, int32_t want[2][ALT_CHUNK_MAX],
+                          int32_t model[2][ALT_CHUNK_MAX], size_t count) {
+  alt_model *m = &run->model;
+  size_t done = 0;
+  while (done < count) {
+    size_t n = IFX_BLOCK_FRAMES - m->block_pos;
+    if (n > count - done) {
+      n = count - done;
+    }
+    const int completes = m->block_pos + n == IFX_BLOCK_FRAMES;
+    uint32_t hold = 0;
+    if (completes && alt_model_turned(run, &hold)) {
+      if (m->to == 0u) {
+        const unsigned lane = m->from == 1u ? 2u : 1u;
+        m->source[lane] = alt_model_clone(run);
+        if (m->source[lane] == NULL) {
+          return -1;
+        }
+        m->to = lane;
+      }
+      m->wait = hold > m->wait ? hold : m->wait;
+      m->ran = run->knobs;
+    }
+    int32_t left[ALT_SOURCES][IFX_BLOCK_FRAMES];
+    int32_t right[ALT_SOURCES][IFX_BLOCK_FRAMES];
+    run->effect->split(run->exact, in + done, left[0], right[0], n);
+    for (unsigned source = 1; source < ALT_SOURCES; source++) {
+      if (m->source[source] != NULL) {
+        run->effect->split(m->source[source], in + done, left[source], right[source], n);
+      }
+    }
+    for (size_t i = 0; i < n; i++) {
+      want[0][done + i] = left[0][i];
+      want[1][done + i] = right[0][i];
+      if (m->from == ALT_NONE) {
+        model[0][done + i] = left[m->to][i];
+        model[1][done + i] = right[m->to][i];
+        continue;
+      }
+      const int64_t x = ++m->pos;
+      const int64_t share = x * x * (3 * ALT_FADE_FRAMES - 2 * x);
+      for (unsigned channel = 0; channel < 2u; channel++) {
+        const int64_t a = channel == 0u ? left[m->from][i] : right[m->from][i];
+        const int64_t b = channel == 0u ? left[m->to][i] : right[m->to][i];
+        model[channel][done + i] = (int32_t)(a + (((b - a) * share + (1 << 29)) >> 30));
+      }
+      if (m->pos == ALT_FADE_FRAMES) {
+        run->effect->close(m->source[m->from]);
+        m->source[m->from] = NULL;
+        m->from = ALT_NONE;
+      }
+    }
+    m->block_pos = (m->block_pos + (unsigned)n) % IFX_BLOCK_FRAMES;
+    if (completes) {
+      if (m->wait != 0u) {
+        m->wait--;
+      } else if (m->from == ALT_NONE && m->to != 0u) {
+        m->from = m->to;
+        m->to = 0;
+        m->pos = 0;
+      }
+    }
+    done += n;
+  }
+  return 0;
+}
+
+/* The variant through one of its four entry points, in turn, split and float
+ * in place. Q23 to float is exact, so the float output converts back for an
+ * exact compare. */
+static void alt_entry(const ifx_effect *alt, void *own, unsigned entry, const int32_t *in,
+                      int32_t got[2][ALT_CHUNK_MAX], size_t count) {
+  float flt[2][ALT_CHUNK_MAX];
+  int32_t pair[2u * ALT_CHUNK_MAX];
+  switch (entry) {
+  case 0:
+    memcpy(got[0], in, count * sizeof *in);
+    alt->split(own, got[0], got[0], got[1], count);
+    break;
+  case 1:
+    ifx_q23_to_f32(flt[0], in, count);
+    alt->f32(own, flt[0], flt[0], flt[1], count);
+    ifx_f32_to_q23(got[0], flt[0], count);
+    ifx_f32_to_q23(got[1], flt[1], count);
+    break;
+  case 2:
+    alt->interleaved(own, in, pair, count);
+    for (size_t i = 0; i < count; i++) {
+      got[0][i] = pair[2u * i];
+      got[1][i] = pair[2u * i + 1u];
+    }
+    break;
+  default:
+    for (size_t i = 0; i < count; i++) {
+      int32_t out[2];
+      alt->frame(own, in[i], out);
+      got[0][i] = out[0];
+      got[1][i] = out[1];
+    }
+    break;
+  }
+}
+
+static void alt_mismatch(alt_run *run, const char *against, const char *label, unsigned channel,
+                         int32_t got, int32_t want) {
+  detail("%s after %s: channel %u is %06X, %s gives %06X", run->alt->name, label, channel,
+         (uint32_t)got & 0xFFFFFFu, against, (uint32_t)want & 0xFFFFFFu);
+  failed();
+  run->broken = 1;
+}
+
+/* The variant, the effect and the definition through `frames` frames of the
+ * test signal in random buffer sizes. The variant must give the definition's
+ * output on every frame, and the effect's when `compare` is set. */
+static void alt_play(alt_run *run, size_t frames, int compare, const char *label) {
+  int32_t in[ALT_CHUNK_MAX];
+  int32_t want[2][ALT_CHUNK_MAX];
+  int32_t model[2][ALT_CHUNK_MAX];
+  int32_t got[2][ALT_CHUNK_MAX];
+  while (frames != 0u && !run->broken) {
+    size_t count = 1u + next_random(&run->seed) % ALT_CHUNK_MAX;
+    if (count > frames) {
+      count = frames;
+    }
+    ifx_signal_fill(&run->signal, in, count);
+    if (alt_model_play(run, in, want, model, count) != 0) {
+      detail("%s: no clone", run->alt->name);
+      failed();
+      run->broken = 1;
+      return;
+    }
+    alt_entry(run->alt, run->own, run->entry++ % ALT_ENTRY_POINTS, in, got, count);
+    frames -= count;
+    for (size_t i = 0; i < count && !run->broken; i++) {
+      for (unsigned channel = 0; channel < 2u && !run->broken; channel++) {
+        if (got[channel][i] != model[channel][i]) {
+          alt_mismatch(run, "its definition", label, channel, got[channel][i], model[channel][i]);
+        } else if (compare && got[channel][i] != want[channel][i]) {
+          alt_mismatch(run, "the effect", label, channel, got[channel][i], want[channel][i]);
+        }
+      }
+      run->departed += got[0][i] != want[0][i] || got[1][i] != want[1][i];
+    }
+    if (compare) {
+      run->compared += count;
+    }
+  }
+}
+
+static void alt_turn(alt_run *run, unsigned knob, int value) {
+  run->knobs.values[knob] = value;
+  if (run->effect->set_knob(run->exact, knob, value) != 0 ||
+      run->alt->set_knob(run->own, knob, value) != 0) {
+    detail("%s: %s = %d has no setup", run->alt->name, run->alt->knob[knob].name, value);
+    failed();
+    run->broken = 1;
+  }
+}
+
+static void alt_turn_analog(alt_run *run, int analog_direct, int output_level) {
+  run->knobs.analog_direct = analog_direct;
+  run->knobs.output_level = output_level;
+  if (run->effect->set_analog(run->exact, analog_direct, output_level) != 0 ||
+      run->alt->set_analog(run->own, analog_direct, output_level) != 0) {
+    detail("%s: the analog stages have no setup", run->alt->name);
+    failed();
+    run->broken = 1;
+  }
+}
+
+/* The settle after a turn, then the frames that must match the effect. */
+static void alt_hold(alt_run *run, const char *name, const char *what) {
+  char label[96];
+  snprintf(label, sizeof label, "%.24s %s", name, what);
+  alt_play(run, ALT_SETTLE_FRAMES, 0, label);
+  alt_play(run, ALT_COMPARE_FRAMES, 1, label);
+}
+
+static void alt_knob(alt_run *run, unsigned knob) {
+  const ifx_effect_knob *record = &run->alt->knob[knob];
+  alt_turn(run, knob, record->min);
+  alt_hold(run, record->name, "to its minimum");
+  alt_turn(run, knob, record->max);
+  alt_hold(run, record->name, "to its maximum");
+  for (unsigned step = 1; step <= ALT_SWEEP_STEPS; step++) {
+    alt_turn(run, knob, ifx_knob_at(record, ALT_SWEEP_STEPS - step, ALT_SWEEP_STEPS));
+    alt_play(run, ALT_SWEEP_FRAMES + step % IFX_BLOCK_FRAMES, 0, record->name);
+  }
+  alt_hold(run, record->name, "swept down");
+  for (unsigned turn = 0; turn < ALT_FAST_TURNS; turn++) {
+    alt_turn(run, knob, ifx_knob_at(record, turn % 2u == 0u ? 1u : 2u, 3u));
+    alt_play(run, ALT_FAST_FRAMES + turn % IFX_BLOCK_FRAMES, 0, record->name);
+  }
+  alt_hold(run, record->name, "after fast turns");
+  alt_turn(run, knob, record->def);
+  alt_hold(run, record->name, "back to its default");
+}
+
+/* A variant against its definition on every frame and against its effect once
+ * settled, from the defaults: every knob in turn jumps to its minimum and its
+ * maximum, sweeps back down in steps, takes fast turns between 33 % and 66 %
+ * and goes back to its default; then every knob at once jumps to its active
+ * value, maximum, minimum and default, and the analog stages turn. */
+static unsigned check_alt(const ifx_effect *effect, const ifx_effect *alt) {
+  item_failures = 0;
+  item_shown = 0;
+  unsigned turns = 0;
+  alt_run run = {.effect = effect, .alt = alt, .seed = 0x5EEDu};
+  if (effect->knobs != alt->knobs || effect->knobs > ALT_KNOBS_MAX || alt->alt_hold == NULL) {
+    printf("%-17s FAIL  its knob table is not %s's, or it has no hold\n", alt->name, effect->name);
+    return 1;
+  }
+  run.direct_knob[0] = analog_find(effect, 3);
+  run.direct_knob[1] = analog_find(effect, 4);
+  run.direct_knob[2] = analog_find(effect, 5);
+  check_effect_range(alt);
+  if (alt->rejects() != 0) {
+    detail("the setup accepts a NULL pointer");
+    failed();
+  }
+  ifx_effect_defaults(alt, run.knobs.values);
+  run.knobs.analog_direct = 0;
+  run.knobs.output_level = 100;
+  run.model.ran = run.knobs;
+  run.model.from = ALT_NONE;
+  run.words[0] = malloc(effect->setup_words * sizeof *run.words[0]);
+  run.words[1] = malloc(effect->setup_words * sizeof *run.words[1]);
+  run.exact = effect->open(run.knobs.values);
+  run.own = alt->open(run.knobs.values);
+  if (run.exact == NULL || run.own == NULL || run.words[0] == NULL || run.words[1] == NULL ||
+      run.direct_knob[0] < 0 || run.direct_knob[1] < 0 || run.direct_knob[2] < 0) {
+    detail("no instance at the defaults");
+    failed();
+  } else {
+    ifx_signal_init(&run.signal);
+    alt_play(&run, ALT_COMPARE_FRAMES, 1, "the start");
+    for (unsigned knob = 0; knob < alt->knobs && !run.broken; knob++) {
+      alt_knob(&run, knob);
+      turns += 3u + ALT_SWEEP_STEPS + ALT_FAST_TURNS;
+    }
+    static const char *const k_presets[] = {"its active value", "its maximum", "its minimum",
+                                            "its default"};
+    for (unsigned preset = 0; preset < 4u && !run.broken; preset++) {
+      for (unsigned knob = 0; knob < alt->knobs; knob++) {
+        const ifx_effect_knob *record = &alt->knob[knob];
+        const int value[4] = {record->active, record->max, record->min, record->def};
+        alt_turn(&run, knob, value[preset]);
+      }
+      alt_hold(&run, "every knob", k_presets[preset]);
+      turns++;
+    }
+    static const int k_analog[][2] = {{1, 40}, {1, 100}, {0, 0}, {0, 100}};
+    for (unsigned turn = 0; turn < sizeof k_analog / sizeof k_analog[0] && !run.broken; turn++) {
+      alt_turn_analog(&run, k_analog[turn][0], k_analog[turn][1]);
+      alt_hold(&run, "the analog stages", "turned");
+      turns++;
+    }
+  }
+  if (!run.broken && run.departed == 0u) {
+    detail("%s never played anything but %s's output", alt->name, effect->name);
+    failed();
+  }
+  for (unsigned source = 1; source < ALT_SOURCES; source++) {
+    if (run.model.source[source] != NULL) {
+      effect->close(run.model.source[source]);
+    }
+  }
+  if (run.exact != NULL) {
+    effect->close(run.exact);
+  }
+  if (run.own != NULL) {
+    alt->close(run.own);
+  }
+  free(run.words[0]);
+  free(run.words[1]);
+  int ok = item_failures == 0;
+  printf("%-17s %s  %u turns: every frame its definition's, %zu settled frames %s's, %zu frames "
+         "of its own (split, float, interleaved and frame)\n",
+         alt->name, ok ? "PASS" : "FAIL", turns, run.compared, effect->name, run.departed);
+  return ok ? 0 : 1;
+}
+
 static void usage(const char *program) {
   fprintf(stderr, "usage: %s [tables] [host]\n", program);
   fprintf(stderr, "  no name: all of them\n");
@@ -1223,6 +1655,14 @@ int main(int argc, char **argv) {
   for (unsigned effect = 0; effect < sizeof k_effects / sizeof k_effects[0]; effect++) {
     if (all_effects != 0 || (selected & (1u << effect)) != 0u) {
       failures += check_effect(k_effects[effect]);
+    }
+  }
+  for (unsigned pair = 0; pair < sizeof k_alt_effects / sizeof k_alt_effects[0]; pair++) {
+    for (unsigned effect = 0; effect < sizeof k_effects / sizeof k_effects[0]; effect++) {
+      if (k_effects[effect] == k_alt_effects[pair][0] &&
+          (all_effects != 0 || (selected & (1u << effect)) != 0u)) {
+        failures += check_alt(k_alt_effects[pair][0], k_alt_effects[pair][1]);
+      }
     }
   }
   return failures == 0 ? 0 : 1;

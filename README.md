@@ -24,9 +24,26 @@ and knob settings, the same output samples as the hardware's DSP.
   is the device's analog dry path and is modelled, not bit-exact: with the raw `analog_direct` on
   and DIRECT HUSH at PRE, the effect adds its input at L/R DIR LVL through the MCU's latch curve.
   With it off, the effect outputs only what the DSP does, and at PRE a host mixes in its own dry.
-- The raw `output_level` is the panel's OUTPUT LEVEL pot, also modelled: 0..100 %, linear, ramped
-  over a block when it changes. At 100 % and with `analog_direct` off, the output is the DSP's,
-  bit-exact.
+- The raw `output_level` is the panel's OUTPUT LEVEL pot, also modelled: 0..100 %, linear. A change
+  of it, of the direct path's levels or of `analog_direct` glides over 26 ms, so none of them
+  clicks. At 100 % and with `analog_direct` off, the output is the DSP's, bit-exact.
+
+## De-popped variants
+
+Some knobs click when turned fast, because the device does: a delay time moves a tap, a level
+steps its gain at the next 32-frame block, a type change wipes the memory. Each effect `ifx_X` has
+a de-popped variant `ifx_X_alt` with the same knobs, setup and API, for a host to offer as a
+choice. It is bit-exact with `ifx_X` until the first turn and again once a turn has settled.
+
+On a turn, the variant keeps playing a copy of the effect with the old settings while the effect
+takes the new ones unheard, then crossfades over 26 ms to the effect once the turn's step has
+passed. Most turns fade at once. A voice's DELAY, LEVEL and PAN act at the voice's delay, the
+Delay's DELAY switch a tap later, and a type change after the wipe: those are heard that much
+later, and only once the knob stops. A step written into a regenerating line still comes round
+again, and one sent into a reverb comes back out of it.
+
+At rest a variant costs what its effect does; while it crossfades, up to three times as much. Its
+state is about 0.8 MB.
 
 ## Disclaimer
 
@@ -40,14 +57,14 @@ Depending on where you live this might be considered a copyright infringement. E
 |---|---|
 | `make build` | `build/default/libifx.a` (the default) |
 | `make install`, `make uninstall` | the library, its headers under `include/ifx/` and `ifx.pc`, under `PREFIX` |
-| `make check` | every fixture and the host checks, offline ([`tests/README.md`](tests/README.md)) |
+| `make check` | every fixture, the de-popped variants against their effects and the host checks, offline ([`tests/README.md`](tests/README.md)) |
 | `make check-fixture FIXTURE=<name>`, `make check-tables`, `make check-host` | one part of `make check` |
 | `make check-install` | build a C and a C++ host against a staged install |
 | `make check-convert` | the float converter on every float, every SIMD path |
 | `make record-fixture FIXTURE=<name>`, `make record-all-fixtures` | record fixtures from the firmware harness (fetches the EPROM) |
 | `make inputs` | download the EPROM and the manual into `reverse_engineering/inputs/` unless present |
 | `make sanitize`, `make coverage` | the checks under ASan and UBSan; gcov coverage of `src/` |
-| `make benchmark-all-fx`, `make benchmark-fx FX=<name>` | processing time per frame |
+| `make benchmark-all-fx`, `make benchmark-fx FX=<name>` | processing time per frame, effects and variants |
 | `make ghidra-prepare` | fetch and verify the EPROM, split it, disassemble both processors and build the Ghidra project |
 | `make ghidra-clean` | remove what `ghidra-prepare` generates, keeping the Ghidra project |
 | `make harness`, `make tools`, `make dsp-core-check` | the firmware harness, its programs and the DSP core's memory-map check (`reverse_engineering/README.md`) |

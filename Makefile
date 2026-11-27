@@ -5,9 +5,9 @@
 #   make install                        libifx.a, the headers and ifx.pc under PREFIX (/usr/local),
 #                                       DESTDIR-aware; make uninstall removes them
 #   make check-install                  build a C and a C++ host against a staged install
-#   make check                          every fixture and the host checks
-#   make check-fixture FIXTURE=<name>   one fixture, or several names in quotes
-#   make benchmark-all-fx               every effect on the Q23 test signal, ns per frame
+#   make check                          every fixture, every de-popped variant and the host checks
+#   make check-fixture FIXTURE=<name>   one fixture and its variant, or several names in quotes
+#   make benchmark-all-fx               every effect and variant on the Q23 test signal, ns per frame
 #   make benchmark-fx FX=<name>         one effect
 #   make check-tables                   the tables fixture
 #   make check-host                     the process entry points

@@ -6,6 +6,10 @@ enum {
   WIPE_END = 0x1000,
 };
 
+/* The clearing passes, the pass that still skips, then the initialising one. */
+_Static_assert((WIPE_START - WIPE_END - 1) / WIPE_STEP + 1 + 2 == IFX_WIPE_CORE_BLOCKS,
+               "the wipe's length");
+
 void ifx_wipe_core_state_init(ifx_wipe_core_state *state) {
   state->pointer = 0;
   state->active = 0;

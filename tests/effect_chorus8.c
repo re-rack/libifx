@@ -1,4 +1,6 @@
 #include "ifx_chorus8.h"
+#include "ifx_chorus8_alt.h"
+#include "ifx_chorus8_alt_setup.h"
 #include "ifx_chorus8_setup.h"
 #include "ifx_effect.h"
 
@@ -123,3 +125,10 @@ static const ifx_effect_extra k_extra[] = {
 
 IFX_EFFECT_DEFINE(chorus8, chorus8, k_knobs, chorus8_raw, k_extra,
                   sizeof k_extra / sizeof k_extra[0])
+
+static uint32_t chorus8_alt_hold(const int32_t *from, const int32_t *to) {
+  return ifx_effect_voices_hold(&from[IFX_CHORUS8_COEF_VOICES], &to[IFX_CHORUS8_COEF_VOICES], 8u);
+}
+
+IFX_EFFECT_DEFINE_ALT(chorus8_alt, chorus8_alt, k_knobs, chorus8_raw, k_extra,
+                      sizeof k_extra / sizeof k_extra[0], chorus8_alt_hold)

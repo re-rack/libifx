@@ -11,6 +11,9 @@
 
 #include "ifx_base.h"
 
+/* Passes from the one a restart arrives in to the one that initialises. */
+#define IFX_WIPE_CORE_BLOCKS 32u
+
 typedef struct {
   uint32_t pointer; /* X:$0017: the next word to clear */
   int active;       /* X:$0000 bit 11: the configuration is not called */

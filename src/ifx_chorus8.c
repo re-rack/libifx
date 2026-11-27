@@ -58,7 +58,8 @@ void ifx_chorus8_state_init(ifx_chorus8_state *state, const ifx_chorus8_config *
   ifx_hush_core_state_init(&state->hush);
   ifx_chorus_core_state_init(&state->chorus, &k_layout, config->coef[IFX_CHORUS8_COEF_REG_LEFT],
                              config->coef[IFX_CHORUS8_COEF_REG_RIGHT]);
-  ifx_analog_core_state_init(&state->analog, config->output_gain);
+  ifx_analog_core_state_init(&state->analog, config->direct_latch[0], config->direct_latch[1],
+                             config->output_gain);
   ifx_process_block_init(&state->block);
 }
 

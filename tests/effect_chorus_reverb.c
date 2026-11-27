@@ -1,4 +1,6 @@
 #include "ifx_chorus_reverb.h"
+#include "ifx_chorus_reverb_alt.h"
+#include "ifx_chorus_reverb_alt_setup.h"
 #include "ifx_chorus_reverb_setup.h"
 #include "ifx_effect.h"
 
@@ -105,3 +107,11 @@ static const ifx_effect_extra k_extra[] = {
 
 IFX_EFFECT_DEFINE(chorus_reverb, chorus_reverb, k_knobs, chorus_reverb_raw, k_extra,
                   sizeof k_extra / sizeof k_extra[0])
+
+static uint32_t chorus_reverb_alt_hold(const int32_t *from, const int32_t *to) {
+  return ifx_effect_voices_hold(&from[IFX_CHORUS_REVERB_COEF_VOICES],
+                                &to[IFX_CHORUS_REVERB_COEF_VOICES], 4u);
+}
+
+IFX_EFFECT_DEFINE_ALT(chorus_reverb_alt, chorus_reverb_alt, k_knobs, chorus_reverb_raw, k_extra,
+                      sizeof k_extra / sizeof k_extra[0], chorus_reverb_alt_hold)

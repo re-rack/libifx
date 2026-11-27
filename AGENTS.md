@@ -40,7 +40,7 @@ The scripts find both by SHA-256, under any name, in the project root or `revers
 | `reverse_engineering/EFFECTS.md` | Verified firmware map and reusable findings for the native library |
 | `Makefile` | Every build, check and tool target; all output goes to `build/` or the workspace's untracked paths |
 | `README.md` | The project's front page |
-| `src/` | Library code only: `ifx.h`, the base, the converter, the process macro (`ifx_process.h`), the DSP56000 arithmetic (`ifx_dsp_math.h`), the shared tables, the shared and family cores and designs, and the effects |
+| `src/` | Library code only: `ifx.h`, the base, the converter, the process macros (`ifx_process.h`, `ifx_alt_process.h`), the DSP56000 arithmetic (`ifx_dsp_math.h`), the eased ramp (`ifx_fade.h`), the shared tables, the shared and family cores and designs, the effects and their de-popped variants |
 | `tests/` | The recorder, the checker, the signal generator and the fixtures (`tests/README.md`) |
 
 ## Native effect progress
@@ -56,7 +56,7 @@ An effect is **Complete** when it has a native setup path, an audio kernel, all 
 | Hush; Chorus; Delay; Reverb (23–24) | `ifx_chorus_reverb` | Mixer, Hush, 4 chorus/delay voices, Ducker, Reverb | Complete |
 | Hush; Pitch Shift; Delay; Reverb (34–35) | `ifx_pitch_reverb` | Mixer, Hush, 2 pitch voices, Delay 3, Ducker, Reverb | Complete |
 
-No de-popped variants: each effect clicks where the device does.
+Each effect has a de-popped variant, `ifx_X_alt` (below).
 
 MIDI, preset storage, title edit, controller and program mapping, bypass and the panel are supporting firmware areas, not effects.
 
@@ -73,9 +73,21 @@ Agreed with the user; change them only with the user.
 - **Processing block.** Fixture turns are offset so they land on every frame of the firmware's processing block.
 - **Modelled analog stages.** Two analog stages after the D/A are modelled, not bit-exact, by each effect's raw knobs that no firmware page has; every fixture runs with them at `analog_direct` 0 and `output_level` 100, where the output is the DSP's words alone.
   - *Direct Pre*, the dry path that never enters the DSP: with `analog_direct` on and DIRECT HUSH at PRE, the effect adds its mono input at L/R DIR LVL, the latch bytes the MCU writes (curve at EPROM `0x31CE`) read as an 8-bit attenuator, latch/256, negated like Direct Post, in the same block as the wet, saturated to Q23. Off, a host adds its own dry signal.
-  - *OUTPUT LEVEL*, the panel's output pot, after the dry sum: 0..100 %, linear, 100 % exactly unity; a change ramps linearly over the block that applies it.
+  - *OUTPUT LEVEL*, the panel's output pot, after the dry sum: 0..100 %, linear, 100 % exactly unity.
+  - A change of either latch or of OUTPUT LEVEL moves all three along one smoothstep ramp of 1,024 frames (`ifx_fade.h`) from where they are, so turning or switching them does not click.
+- **De-popped variants.** Each effect clicks where the device does; `ifx_X_alt` is the same effect without the clicks a turn makes in its output (below).
 - **Output offset.** The DSP's mixer adds a constant `0x066666` (+0.05) to both outputs before its limiter, which the analog output stage's coupling removes on the device. The library outputs the firmware's word minus `0x066666`, saturated to Q23. Fixtures store the firmware's words; the checker subtracts the offset the same way.
 - **Converters.** Samples are 24-bit in and out: the DSP's arithmetic on whole Q23 input words and its whole 24-bit output words. The A/D's and D/A's 16-bit resolution is not ported, and the recorder feeds 24-bit words.
+
+## De-popped variants
+
+`ifx_X_alt` is effect X with its turns crossfaded: the same knobs, setup and API, bit-exact with X before the first turn and again once each turn has settled. A host picks one or the other.
+
+- **Freeze and fade** (`ifx_alt_core.h`). The variant runs X at all times. A turn would step X's output, so while X is heard, the turn first freezes a copy of X that keeps the old settings and plays on; X takes the turn unheard. Once X's output has passed the turn's own step, the output fades from the copy to X along the smoothstep of 1,024 frames, and from there it is X's, sample for sample. A turn during a fade freezes a second copy that fades in instead, so at most two copies run.
+- **Holds.** A turn's step reaches the output at once, except where X writes it into a line: a voice's DELAY, LEVEL and PAN act at its delay, the Delay's DELAY with an input-cutting MUTE TYPE a tap later, and D TYPE and REV TYPE after the memory wipe and the new taps' fill. The variant's hold function waits that long, also while the knob keeps turning. It does not wait for what recirculates: a step written into a regenerating line comes round again, and one sent into a reverb comes back out of it.
+- **No second copy of a kernel.** A variant calls its effect's own entry points; `IFX_ALT_PROCESS_DEFINE` generates its entry points from them and its hold function, so X stays bit-exact and no slower.
+- **Setup is the effect's.** `ifx_X_alt_setup_raw` is a typedef of X's raw struct, `ifx_X_alt_setup_config` forwards to X's setup, and the config is X's.
+- **Limits.** The state is three of X's (about 0.8 MB); a turn copies one of them, and while copies play the variant costs up to three times X. The checker holds a variant to its definition; whether that removes a click is measured, not checked.
 
 ## Terminology
 
@@ -102,7 +114,7 @@ void ifx_X_process_frame(ifx_X_state *state, const ifx_X_config *config, int32_t
 
 - Setup forces every raw knob into the firmware's own window and returns 0, or -1 for a NULL pointer. A knob change means the host reruns setup and passes the new config, which applies from the next frame; there is no publish or apply call.
 - The interleaved entry point takes a mono input buffer and writes interleaved stereo. Any buffer size works. In split and f32 either output may be the input buffer; the interleaved output, twice the input's size, must not overlap it.
-- The four entry points are generated from one block function by `IFX_PROCESS_DEFINE`, which gathers and plays the blocks.
+- The four entry points are generated from one block function by `IFX_PROCESS_DEFINE`, which gathers and plays the blocks. A de-popped variant `ifx_X_alt` has the same seven functions, generated by `IFX_ALT_PROCESS_DEFINE`.
 - No allocation and no global state. `make build` writes `build/default/libifx.a` with `-fPIC` and hidden visibility; `make install` installs it with every header under `include/ifx/` and an `ifx.pc`. Headers stay valid C++17: `restrict` and `_Static_assert` stay out of what C++ reads.
 - No public function, parameter or constant exists for tests alone.
 
@@ -114,7 +126,7 @@ Samples are Q23, a signed 24-bit value in an `int32_t`. `src/ifx_convert.{h,c}` 
 
 libgmajor2's `AGENTS.md` "Code conventions" apply with `gm2` renamed `ifx`; the points that differ or matter most:
 
-- An effect X is four files: `ifx_X.h` (config, state, process entry points), `ifx_X.c`, `ifx_X_setup.h` (the raw struct and `ifx_X_setup_config`) and `ifx_X_setup.c`. A shared audio routine is `ifx_<family>_core.{h,c}`, shared setup math `ifx_<family>_design.{h,c}`.
+- An effect X is four files: `ifx_X.h` (config, state, process entry points), `ifx_X.c`, `ifx_X_setup.h` (the raw struct and `ifx_X_setup_config`) and `ifx_X_setup.c`; its de-popped variant four more, `ifx_X_alt.{h,c}` and `ifx_X_alt_setup.{h,c}`. A shared audio routine is `ifx_<family>_core.{h,c}`, shared setup math `ifx_<family>_design.{h,c}`.
 - Everything a header declares starts with the header's module name. Inside a `.c` file, static functions drop the `ifx_` prefix, constants are enum constants without `IFX_`, constant data is `static const ... k_<name>`, and a file that clamps raw knobs names its windows `<FIELD>_MIN` / `<FIELD>_MAX` (the MCU's exclusive maximum) in one enum and clamps through `ifx_window`.
 - A config holds `int32_t coef[]`: the words the firmware stages, in the firmware's order, as sign-extended 24-bit values, with an enum naming the positions the code uses. A state holds the kernel's own words. Nothing is kept because the firmware keeps it: a scratch word is a local, a constant word is a constant, a word no output depends on is not computed. Only audio input is masked on reading.
 - DSP56000 arithmetic, firmware tables, LFOs, parameter smoothing and conversions live in shared helpers, never in an effect. The 8051's integer math and tables become shared helpers too, word for word.
@@ -140,10 +152,10 @@ Every effect becomes its own plugin: a standalone module with its own config, st
 The emulator only records; every check runs offline.
 
 - `tests/ifx_record.c` runs the firmware in the two-CPU harness and writes `tests/fixtures/<name>.bin`; `tests/ifx_check.c` replays every fixture through the public API alone. Expected values come only from the firmware, and test code never enters `src/`.
-- An effect is described once: a knob table and native adapter in `tests/effect_<name>.c`, its configuration and setup words in `tests/firmware_<name>.c`, and one line in the effects list.
+- An effect is described once: a knob table and native adapter in `tests/effect_<name>.c`, its configuration and setup words in `tests/firmware_<name>.c`, and one line in the effects list. Its de-popped variant has no fixture: a second adapter on the same knob table with its hold definition in the same `tests/effect_<name>.c`, and one line in `IFX_ALT_EFFECTS`.
 - A fixture holds: setup words for each knob on its own (every position for 32 or fewer, otherwise 32 evenly spread positions plus the default); four multi-knob presets (every knob at 33 %, 66 %, minimum, maximum, each built one knob at a time) plus the configuration's factory presets; one long audio run on the generated input (libgmajor2's `gm2_signal.c`), moving each knob through min, 33 %, 66 %, max and default, then from an active setting the effect names per knob (one where every section acts: on, audible, short delays, regen near the rails), once for every value of its mode knobs (delay type, reverb type), sweeping every knob and giving each ten fast turns 64 frames apart that land while the previous glide still moves, with segment lengths offset over the processing block, and delay-time knobs holding their maximum until the buffer wraps. Every output sample is stored.
 - **The recorder follows the device.** A knob turn is the MCU's own edit routine (the one PARAMETER ADJUST and MIDI CC use) followed by the DSP's handling of what the MCU sends. An adapter never copies staged words onto live ones and never takes a value from the library.
-- **The checker** replays every run through all four entry points with random buffer sizes and junk in the unused upper input bytes, checks that setup at min-1 and max+1 equals setup at min and max, and fills configs with junk before setup. A tables fixture holds every lookup table as the EPROM holds it. The modelled analog stages have no firmware answer: the checker holds every effect's output with them in use to their definition against the same run at the fixtures' settings. Internal state is not compared.
+- **The checker** replays every run through all four entry points with random buffer sizes and junk in the unused upper input bytes, checks that setup at min-1 and max+1 equals setup at min and max, and fills configs with junk before setup. A tables fixture holds every lookup table as the EPROM holds it. The modelled analog stages have no firmware answer: the checker holds every effect's output with them in use to their definition against the same run at the fixtures' settings. It runs each de-popped variant beside its effect and its definition, built from the effect's adapter alone (clones of the effect, the hold `tests/effect_<name>.c` defines, the fade), through jumps, sweeps and fast turns of every knob, preset jumps of all knobs at once and turns of the analog stages, through all four entry points, and requires the definition's output on every frame, the effect's after each turn's settle, and the variant's own output somewhere. Internal state is not compared.
 - Make targets as in libgmajor2: `build`, `install`, `uninstall`, `check-install`, `check`, `check-fixture`, `check-tables`, `check-host`, `record-fixture`, `record-all-fixtures`, `coverage`, `benchmark-all-fx`, `benchmark-fx`, `check-convert`, `format`, `static-check`, `sanitize`, `clean`, `inputs`, `ghidra-prepare`, `ghidra-clean`, plus the harness's `harness`, `tools` and `dsp-core-check`. Every C file compiles with one warning set (libgmajor2's `STRICT`), warnings are errors, and all output goes to `build/`.
 - After adding an effect, run `coverage` and confirm by mutation that the fixture covers every path: a deliberately broken constant, rounding or branch in each new source must make `check` fail. Re-record only when an effect's description, the input or the fixture format changes, never because `src/` changed.
 

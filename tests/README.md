@@ -87,7 +87,8 @@ and regeneration whose limiter sum lands on its rounding boundary.
   `analog_direct` 0 and `output_level` 100 as every fixture replay runs, once as
   scheduled. The second output must be the first plus the negated input of 32
   frames before times latch/256, rounded half up and saturated, then times the
-  output gain ramping from the last block's to the block's own, rounded half up.
+  output gain, rounded half up, the latches and the gain gliding together along
+  a smoothstep of 1,024 frames from where they are to each block's setting.
   The run walks every DIR LVL with L and R apart and every OUTPUT LEVEL, turns
   mid-block and several times within one block, switches to POST, passes both
   knobs past each end of their windows, and must saturate at both rails.
@@ -97,6 +98,18 @@ and regeneration whose limiter sum lands on its rounding boundary.
   The audio run replays through split, float, interleaved and frame with random
   buffer sizes and junk in the upper input bits; the output must equal the
   fixture's words minus `0x066666`, saturated to Q23.
+- **De-popped variants:** `ifx_X_alt` has no fixture of its own; it is checked
+  against its definition, which the checker builds from the effect's adapter
+  alone: the effect, and around each turn clones of it that keep the old knobs,
+  mixed along a smoothstep of 1,024 frames once the effect has passed the
+  turn's hold (`ifx_effect_hold_blocks` and each effect's `<name>_alt_hold`).
+  From the defaults, every knob jumps to its minimum and maximum, sweeps down in
+  16 steps, takes ten fast turns and returns to its default; then every knob at
+  once jumps to its active value, maximum, minimum and default, and the analog
+  stages turn. The variant must give the definition's output on every frame,
+  through split and float in place, interleaved and frame in turn with random
+  buffer sizes; after each turn's settle of 64,000 frames, longer than any hold
+  and its fades, the effect's too; and its own output somewhere.
 - **Converter:** `make check-convert` checks `ifx_convert.c` on every float and
   every Q23 pattern, on each SIMD path the machine has and on NEON and RVV under
   qemu; `make check` and `make sanitize` run its quick subset.
@@ -106,13 +119,13 @@ and regeneration whose limiter sum lands on its rounding boundary.
 ## Targets
 
 ```
-make check                          every table, host and effect fixture
+make check                          every table, host and effect fixture, every variant
 make check-tables                   the tables fixture
 make check-host                     the process entry points
-make check-fixture FIXTURE=delay    one effect fixture
+make check-fixture FIXTURE=delay    one effect fixture and its variant
 make record-fixture FIXTURE=delay   rewrite it from the firmware harness
 make record-all-fixtures            rewrite every fixture
-make benchmark-all-fx               every effect, ns per frame
+make benchmark-all-fx               every effect and variant, ns per frame
 make benchmark-fx FX=delay          one effect
 ```
 
@@ -124,7 +137,9 @@ number and its setup record's DSP words in `tests/firmware_<name>.c`; and one
 line in `tests/ifx_effects.h`. Then run `make record-fixture FIXTURE=<name>`,
 `make check` and `make coverage`, and prove the fixture by mutation: a constant
 off by one LSB, a rounding dropped or a branch changed in each new source must
-make `make check` fail.
+make `make check` fail. Its de-popped variant needs a hold function in
+`src/ifx_<name>_alt.c`, a second adapter with the hold's definition beside the
+effect's, and one line in `IFX_ALT_EFFECTS`.
 
 ## Limits
 
@@ -134,3 +149,5 @@ make `make check` fail.
 - Knob turns are recorded through the MCU's send routine, one message per change;
   the panel's one message per detent is checked by the harness, not here.
 - Everything is at the device rate; no arithmetic depends on the rate.
+- A de-popped variant is checked against its definition: whether that removes
+  a click is measured, not checked.

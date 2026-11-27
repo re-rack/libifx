@@ -164,7 +164,8 @@ void ifx_reverb_state_init(ifx_reverb_state *state, const ifx_reverb_config *con
   state->type = config->coef[IFX_REVERB_COEF_TYPE];
   init_config(state, config);
   ifx_wipe_core_state_init(&state->wipe);
-  ifx_analog_core_state_init(&state->analog, config->output_gain);
+  ifx_analog_core_state_init(&state->analog, config->direct_latch[0], config->direct_latch[1],
+                             config->output_gain);
   ifx_process_block_init(&state->block);
 }
 

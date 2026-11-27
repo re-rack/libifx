@@ -17,6 +17,10 @@
  * no overlap because its output is twice its input. Nothing allocates. The
  * library keeps no global state: different objects may be used from different
  * threads, but one object must not be written while another thread uses it.
+ *
+ * Each effect ifx_X also comes as ifx_X_alt, with the same knobs, setup and
+ * entry points: the effect with its turns crossfaded (ifx_alt_core.h), its
+ * output again once a turn has settled.
  */
 #ifndef IFX_H
 #define IFX_H
@@ -30,17 +34,29 @@ extern "C" {
 
 #include "ifx_base.h"
 #include "ifx_chorus8.h"
+#include "ifx_chorus8_alt.h"
+#include "ifx_chorus8_alt_setup.h"
 #include "ifx_chorus8_setup.h"
 #include "ifx_chorus_reverb.h"
+#include "ifx_chorus_reverb_alt.h"
+#include "ifx_chorus_reverb_alt_setup.h"
 #include "ifx_chorus_reverb_setup.h"
 #include "ifx_convert.h"
 #include "ifx_delay.h"
+#include "ifx_delay_alt.h"
+#include "ifx_delay_alt_setup.h"
 #include "ifx_delay_setup.h"
 #include "ifx_pitch.h"
+#include "ifx_pitch_alt.h"
+#include "ifx_pitch_alt_setup.h"
 #include "ifx_pitch_reverb.h"
+#include "ifx_pitch_reverb_alt.h"
+#include "ifx_pitch_reverb_alt_setup.h"
 #include "ifx_pitch_reverb_setup.h"
 #include "ifx_pitch_setup.h"
 #include "ifx_reverb.h"
+#include "ifx_reverb_alt.h"
+#include "ifx_reverb_alt_setup.h"
 #include "ifx_reverb_setup.h"
 
 #ifdef __cplusplus

@@ -1,4 +1,6 @@
 #include "ifx_delay.h"
+#include "ifx_delay_alt.h"
+#include "ifx_delay_alt_setup.h"
 #include "ifx_delay_setup.h"
 #include "ifx_effect.h"
 
@@ -55,3 +57,31 @@ static const ifx_effect_extra k_extra[] = {
 };
 
 IFX_EFFECT_DEFINE(delay, delay, k_knobs, delay_raw, k_extra, sizeof k_extra / sizeof k_extra[0])
+
+/* The variant's hold: D TYPE wipes the lines and waits for its longest tap,
+ * whose words count pairs in 2-Tap; DELAY and MUTE TYPE change what the lines
+ * take in, a tap ahead of the output. */
+static int32_t delay_alt_tap(const int32_t *words) {
+  const int32_t tap = words[IFX_DELAY_COEF_TIME1] > words[IFX_DELAY_COEF_TIME2]
+                          ? words[IFX_DELAY_COEF_TIME1]
+                          : words[IFX_DELAY_COEF_TIME2];
+  return (words[IFX_DELAY_COEF_DELAY_FLAGS] & IFX_DELAY_FLAG_2TAP) != 0 ? 2 * tap : tap;
+}
+
+static uint32_t delay_alt_hold(const int32_t *from, const int32_t *to) {
+  const int32_t types = IFX_DELAY_FLAG_STEREO | IFX_DELAY_FLAG_PINGPONG | IFX_DELAY_FLAG_2TAP;
+  const int32_t a = from[IFX_DELAY_COEF_DELAY_FLAGS];
+  const int32_t b = to[IFX_DELAY_COEF_DELAY_FLAGS];
+  if (((a ^ b) & types) != 0) {
+    return IFX_EFFECT_WIPE_BLOCKS + ifx_effect_hold_blocks(delay_alt_tap(to));
+  }
+  if (a != b) {
+    const int32_t from_tap = delay_alt_tap(from);
+    const int32_t to_tap = delay_alt_tap(to);
+    return ifx_effect_hold_blocks(from_tap > to_tap ? from_tap : to_tap);
+  }
+  return 0;
+}
+
+IFX_EFFECT_DEFINE_ALT(delay_alt, delay_alt, k_knobs, delay_raw, k_extra,
+                      sizeof k_extra / sizeof k_extra[0], delay_alt_hold)

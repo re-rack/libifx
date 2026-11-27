@@ -1,5 +1,6 @@
-/* The benchmark: runs each effect on Q23 test-signal buffers and reports the
- * median processing time of seven 2 s runs in nanoseconds per frame. */
+/* The benchmark: runs each effect, and each de-popped variant at rest, on Q23
+ * test-signal buffers and reports the median processing time of seven 2 s
+ * runs in nanoseconds per frame. */
 #define _POSIX_C_SOURCE 200809L
 
 #include "ifx_effect.h"
@@ -19,7 +20,10 @@ enum {
 };
 
 #define IFX_EFFECT_POINTER(name) &ifx_effect_##name,
-static const ifx_effect *const k_effects[] = {IFX_EFFECTS(IFX_EFFECT_POINTER)};
+#define IFX_ALT_POINTER(name, alt) &ifx_effect_##alt,
+static const ifx_effect *const k_effects[] = {IFX_EFFECTS(IFX_EFFECT_POINTER)
+                                                  IFX_ALT_EFFECTS(IFX_ALT_POINTER)};
+#undef IFX_ALT_POINTER
 #undef IFX_EFFECT_POINTER
 #define BENCH_EFFECTS (sizeof k_effects / sizeof k_effects[0])
 

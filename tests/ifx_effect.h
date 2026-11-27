@@ -53,13 +53,49 @@ typedef struct {
   void (*f32)(void *instance, const float *in, float *out_left, float *out_right, size_t frames);
   void (*interleaved)(void *instance, const int32_t *in, int32_t *out, size_t frames);
   void (*frame)(void *instance, int32_t in, int32_t out[2]);
+  void *(*clone)(const void *instance);
   void (*close)(void *instance);
+  /* A de-popped variant's hold for a turn between two configs' setup words, in
+   * blocks; NULL for an effect. */
+  uint32_t (*alt_hold)(const int32_t *from, const int32_t *to);
 } ifx_effect;
+
+/* The variants' hold definitions: a step `samples` behind a turn reaches the
+ * output within this many blocks, with one to spare. */
+static inline uint32_t ifx_effect_hold_blocks(int32_t samples) {
+  return ((uint32_t)samples + 31u) / 32u + 2u;
+}
+
+/* Blocks from the one a memory wipe starts in to the one that initialises. */
+#define IFX_EFFECT_WIPE_BLOCKS 32u
+
+/* Voice blocks of eight words: a turn of a voice's delay (word 3, in samples)
+ * or gains (words 4 to 7) holds for its longer delay. */
+static inline uint32_t ifx_effect_voices_hold(const int32_t *from, const int32_t *to,
+                                              unsigned voices) {
+  uint32_t hold = 0;
+  for (unsigned voice = 0; voice < voices; voice++) {
+    const int32_t *a = &from[8u * voice];
+    const int32_t *b = &to[8u * voice];
+    if (memcmp(&a[3], &b[3], 5u * sizeof *a) != 0) {
+      const uint32_t blocks = ifx_effect_hold_blocks(a[3] > b[3] ? a[3] : b[3]);
+      hold = blocks > hold ? blocks : hold;
+    }
+  }
+  return hold;
+}
 
 #define IFX_EFFECT_POISON 0xA5
 #define IFX_EFFECT_EXTRA_MAX 32u
 
 #define IFX_EFFECT_DEFINE(fixture, module, knob_table, raw, extra_table, extra_count)              \
+  IFX_EFFECT_DEFINE_HOLD(fixture, module, knob_table, raw, extra_table, extra_count, NULL)
+
+/* A de-popped variant's adapter, with its hold definition. */
+#define IFX_EFFECT_DEFINE_ALT(fixture, module, knob_table, raw, extra_table, extra_count, hold)    \
+  IFX_EFFECT_DEFINE_HOLD(fixture, module, knob_table, raw, extra_table, extra_count, hold)
+
+#define IFX_EFFECT_DEFINE_HOLD(fixture, module, knob_table, raw, extra_table, extra_count, hold)   \
   _Static_assert((extra_count) <= IFX_EFFECT_EXTRA_MAX, "too many extra turns");                   \
   typedef struct {                                                                                 \
     ifx_##module##_config config;                                                                  \
@@ -170,6 +206,14 @@ typedef struct {
     ifx_##module##_process_frame(&self->state, &self->config, in, out);                            \
   }                                                                                                \
                                                                                                    \
+  static void *fixture##_clone(const void *instance) {                                             \
+    fixture##_native *self = malloc(sizeof *self);                                                 \
+    if (self != NULL) {                                                                            \
+      memcpy(self, instance, sizeof *self);                                                        \
+    }                                                                                              \
+    return self;                                                                                   \
+  }                                                                                                \
+                                                                                                   \
   static void fixture##_close(void *instance) { free(instance); }                                  \
                                                                                                    \
   const ifx_effect ifx_effect_##fixture = {                                                        \
@@ -188,7 +232,9 @@ typedef struct {
       .f32 = fixture##_f32,                                                                        \
       .interleaved = fixture##_interleaved,                                                        \
       .frame = fixture##_frame,                                                                    \
+      .clone = fixture##_clone,                                                                    \
       .close = fixture##_close,                                                                    \
+      .alt_hold = (hold),                                                                          \
   };
 
 #define IFX_EFFECT_FAST 64u
@@ -334,5 +380,9 @@ static inline void ifx_effect_values(const ifx_effect *effect, const ifx_segment
 #define IFX_EFFECT_DECLARE(name) extern const ifx_effect ifx_effect_##name;
 IFX_EFFECTS(IFX_EFFECT_DECLARE)
 #undef IFX_EFFECT_DECLARE
+
+#define IFX_EFFECT_DECLARE_ALT(name, alt) extern const ifx_effect ifx_effect_##alt;
+IFX_ALT_EFFECTS(IFX_EFFECT_DECLARE_ALT)
+#undef IFX_EFFECT_DECLARE_ALT
 
 #endif /* IFX_EFFECT_H */

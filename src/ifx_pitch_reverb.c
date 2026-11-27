@@ -81,7 +81,8 @@ void ifx_pitch_reverb_state_init(ifx_pitch_reverb_state *state,
                             config->coef[IFX_PITCH_REVERB_COEF_REG_LEFT],
                             config->coef[IFX_PITCH_REVERB_COEF_REG_RIGHT]);
   ifx_reverb_net_core_state_init(&state->reverb);
-  ifx_analog_core_state_init(&state->analog, config->output_gain);
+  ifx_analog_core_state_init(&state->analog, config->direct_latch[0], config->direct_latch[1],
+                             config->output_gain);
   ifx_process_block_init(&state->block);
 }
 

@@ -1,5 +1,7 @@
 #include "ifx_effect.h"
 #include "ifx_reverb.h"
+#include "ifx_reverb_alt.h"
+#include "ifx_reverb_alt_setup.h"
 #include "ifx_reverb_setup.h"
 
 #define REVERB_KNOBS 18u
@@ -58,3 +60,17 @@ static const ifx_effect_extra k_extra[] = {
 };
 
 IFX_EFFECT_DEFINE(reverb, reverb, k_knobs, reverb_raw, k_extra, sizeof k_extra / sizeof k_extra[0])
+
+/* The variant's hold: REV TYPE wipes the memory and waits for the longer
+ * predelay. */
+static uint32_t reverb_alt_hold(const int32_t *from, const int32_t *to) {
+  if (from[IFX_REVERB_COEF_TYPE] == to[IFX_REVERB_COEF_TYPE]) {
+    return 0;
+  }
+  const int32_t left = to[IFX_REVERB_COEF_PREDELAY_LEFT];
+  const int32_t right = to[IFX_REVERB_COEF_PREDELAY_RIGHT];
+  return IFX_EFFECT_WIPE_BLOCKS + ifx_effect_hold_blocks(left > right ? left : right);
+}
+
+IFX_EFFECT_DEFINE_ALT(reverb_alt, reverb_alt, k_knobs, reverb_raw, k_extra,
+                      sizeof k_extra / sizeof k_extra[0], reverb_alt_hold)

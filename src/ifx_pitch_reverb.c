@@ -1,5 +1,6 @@
 #include "ifx_pitch_reverb.h"
 
+#include "ifx_analog_core.h"
 #include "ifx_mixer_core.h"
 #include "ifx_mixer_design.h"
 
@@ -64,6 +65,8 @@ static void pitch_reverb_block(ifx_pitch_reverb_state *state, const ifx_pitch_re
                          config->coef[IFX_PITCH_REVERB_COEF_DIRECT_LEFT],
                          config->coef[IFX_PITCH_REVERB_COEF_DIRECT_RIGHT],
                          (flags & IFX_MIXER_DESIGN_FLAG_DIRECT) != 0, out_l, out_r);
+  ifx_analog_core_process(&state->analog, in, config->direct_latch[0], config->direct_latch[1],
+                          config->output_gain, out_l, out_r);
 }
 
 void ifx_pitch_reverb_state_init(ifx_pitch_reverb_state *state,
@@ -78,6 +81,7 @@ void ifx_pitch_reverb_state_init(ifx_pitch_reverb_state *state,
                             config->coef[IFX_PITCH_REVERB_COEF_REG_LEFT],
                             config->coef[IFX_PITCH_REVERB_COEF_REG_RIGHT]);
   ifx_reverb_net_core_state_init(&state->reverb);
+  ifx_analog_core_state_init(&state->analog, config->output_gain);
   ifx_process_block_init(&state->block);
 }
 

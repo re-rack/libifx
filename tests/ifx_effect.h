@@ -46,6 +46,8 @@ typedef struct {
   int (*rejects)(void);
   void *(*open)(const int32_t *values);
   int (*set_knob)(void *instance, unsigned knob, int value);
+  /* The library's own knobs: analog_direct 0 and output_level 100 in every fixture run. */
+  int (*set_analog)(void *instance, int analog_direct, int output_level);
   void (*split)(void *instance, const int32_t *in, int32_t *out_left, int32_t *out_right,
                 size_t frames);
   void (*f32)(void *instance, const float *in, float *out_left, float *out_right, size_t frames);
@@ -63,18 +65,23 @@ typedef struct {
     ifx_##module##_config config;                                                                  \
     ifx_##module##_state state;                                                                    \
     int32_t values[sizeof(knob_table) / sizeof(knob_table)[0]];                                    \
+    int analog_direct;                                                                             \
+    int output_level;                                                                              \
   } fixture##_native;                                                                              \
                                                                                                    \
-  static int fixture##_config(const int32_t *values, ifx_##module##_config *config) {              \
+  static int fixture##_config(const int32_t *values, int analog_direct, int output_level,          \
+                              ifx_##module##_config *config) {                                     \
     ifx_##module##_setup_raw raw_values;                                                           \
     raw(values, &raw_values);                                                                      \
+    raw_values.analog_direct = analog_direct;                                                      \
+    raw_values.output_level = output_level;                                                        \
     return ifx_##module##_setup_config(&raw_values, config);                                       \
   }                                                                                                \
                                                                                                    \
   static int fixture##_setup(const int32_t *values, int32_t *setup_words) {                        \
     ifx_##module##_config config;                                                                  \
     memset(&config, IFX_EFFECT_POISON, sizeof config);                                             \
-    if (fixture##_config(values, &config) != 0) {                                                  \
+    if (fixture##_config(values, 0, 100, &config) != 0) {                                          \
       return -1;                                                                                   \
     }                                                                                              \
     memcpy(setup_words, config.coef, sizeof config.coef);                                          \
@@ -102,7 +109,10 @@ typedef struct {
     }                                                                                              \
     memset(self, IFX_EFFECT_POISON, sizeof *self);                                                 \
     memcpy(self->values, values, sizeof self->values);                                             \
-    if (fixture##_config(self->values, &self->config) != 0) {                                      \
+    self->analog_direct = 0;                                                                       \
+    self->output_level = 100;                                                                      \
+    if (fixture##_config(self->values, self->analog_direct, self->output_level, &self->config) !=  \
+        0) {                                                                                       \
       free(self);                                                                                  \
       return NULL;                                                                                 \
     }                                                                                              \
@@ -116,10 +126,23 @@ typedef struct {
     ifx_##module##_config config;                                                                  \
     self->values[knob] = (int32_t)value;                                                           \
     memset(&config, IFX_EFFECT_POISON, sizeof config);                                             \
-    if (fixture##_config(self->values, &config) != 0) {                                            \
+    if (fixture##_config(self->values, self->analog_direct, self->output_level, &config) != 0) {   \
       self->values[knob] = previous;                                                               \
       return -1;                                                                                   \
     }                                                                                              \
+    self->config = config;                                                                         \
+    return 0;                                                                                      \
+  }                                                                                                \
+                                                                                                   \
+  static int fixture##_set_analog(void *instance, int analog_direct, int output_level) {           \
+    fixture##_native *self = instance;                                                             \
+    ifx_##module##_config config;                                                                  \
+    memset(&config, IFX_EFFECT_POISON, sizeof config);                                             \
+    if (fixture##_config(self->values, analog_direct, output_level, &config) != 0) {               \
+      return -1;                                                                                   \
+    }                                                                                              \
+    self->analog_direct = analog_direct;                                                           \
+    self->output_level = output_level;                                                             \
     self->config = config;                                                                         \
     return 0;                                                                                      \
   }                                                                                                \
@@ -160,6 +183,7 @@ typedef struct {
       .rejects = fixture##_rejects,                                                                \
       .open = fixture##_open,                                                                      \
       .set_knob = fixture##_set_knob,                                                              \
+      .set_analog = fixture##_set_analog,                                                          \
       .split = fixture##_split,                                                                    \
       .f32 = fixture##_f32,                                                                        \
       .interleaved = fixture##_interleaved,                                                        \

@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "ifx_analog_core.h"
 #include "ifx_front_core.h"
 #include "ifx_hush_core.h"
 #include "ifx_process.h"
@@ -46,6 +47,8 @@ enum { IFX_REVERB_FLAG_GATE = 1 << 9 }; /* X:$0000 bit 9: GATE on */
 
 typedef struct {
   int32_t coef[IFX_REVERB_COEF_COUNT];
+  int32_t direct_latch[2]; /* X:8101 and X:8001: the analog direct path's L and R bytes */
+  int32_t output_gain;     /* OUTPUT LEVEL, 0x10000 unity */
 } ifx_reverb_config;
 
 typedef struct {
@@ -61,6 +64,7 @@ typedef struct {
   uint32_t write; /* Y:$000d: predelay ring write pointer */
   int32_t lowpass; /* Y:$002c: the LOW FREQ filter state */
   ifx_wipe_core_state wipe;
+  ifx_analog_core_state analog;
   ifx_process_block block;
 } ifx_reverb_state;
 

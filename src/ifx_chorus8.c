@@ -1,5 +1,6 @@
 #include "ifx_chorus8.h"
 
+#include "ifx_analog_core.h"
 #include "ifx_mixer_core.h"
 #include "ifx_mixer_design.h"
 #include "ifx_regen_core.h"
@@ -45,6 +46,8 @@ static void chorus8_block(ifx_chorus8_state *state, const ifx_chorus8_config *co
                          config->coef[IFX_CHORUS8_COEF_DIRECT_LEFT],
                          config->coef[IFX_CHORUS8_COEF_DIRECT_RIGHT],
                          (flags & IFX_MIXER_DESIGN_FLAG_DIRECT) != 0, out_l, out_r);
+  ifx_analog_core_process(&state->analog, in, config->direct_latch[0], config->direct_latch[1],
+                          config->output_gain, out_l, out_r);
 }
 
 void ifx_chorus8_state_init(ifx_chorus8_state *state, const ifx_chorus8_config *config) {
@@ -55,6 +58,7 @@ void ifx_chorus8_state_init(ifx_chorus8_state *state, const ifx_chorus8_config *
   ifx_hush_core_state_init(&state->hush);
   ifx_chorus_core_state_init(&state->chorus, &k_layout, config->coef[IFX_CHORUS8_COEF_REG_LEFT],
                              config->coef[IFX_CHORUS8_COEF_REG_RIGHT]);
+  ifx_analog_core_state_init(&state->analog, config->output_gain);
   ifx_process_block_init(&state->block);
 }
 

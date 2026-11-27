@@ -1,4 +1,5 @@
-/* The shared image's lookup tables, word for word as the firmware holds them. */
+/* The firmware's lookup tables, word for word: the shared DSP image's, one
+ * configuration's and the MCU's direct latch curve. */
 #ifndef IFX_TABLES_H
 #define IFX_TABLES_H
 
@@ -16,6 +17,7 @@
 #define IFX_FINE_PITCH_TABLE_WORDS 41u
 #define IFX_REVERB_TYPE_COUNT 8u
 #define IFX_REVERB_TYPE_TABLE_WORDS 48u
+#define IFX_DIRECT_TABLE_WORDS 59u
 
 /* P:$07BE..$07F8: T1 level, 0 then -48 dB to 0 dB in 0.5 dB steps. */
 extern const int32_t ifx_level_table[IFX_LEVEL_TABLE_WORDS];
@@ -50,5 +52,8 @@ extern const int32_t ifx_fine_pitch_table[IFX_FINE_PITCH_TABLE_WORDS];
 /* Configuration 2 P:$0172..$02F1: the eight types' 48-word pointer and
  * coefficient tables, copied to X:$40..$6F by the configuration's init. */
 extern const int32_t ifx_reverb_type_table[IFX_REVERB_TYPE_COUNT][IFX_REVERB_TYPE_TABLE_WORDS];
+
+/* EPROM 0x31CE: the MCU's direct latch byte per DIR LVL, T1 in 8 bits. */
+extern const int32_t ifx_direct_table[IFX_DIRECT_TABLE_WORDS];
 
 #endif /* IFX_TABLES_H */

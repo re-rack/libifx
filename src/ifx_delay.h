@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "ifx_analog_core.h"
 #include "ifx_ducker_core.h"
 #include "ifx_front_core.h"
 #include "ifx_hush_core.h"
@@ -57,6 +58,8 @@ enum {
 
 typedef struct {
   int32_t coef[IFX_DELAY_COEF_COUNT];
+  int32_t direct_latch[2]; /* X:8101 and X:8001: the analog direct path's L and R bytes */
+  int32_t output_gain;     /* OUTPUT LEVEL, 0x10000 unity */
 } ifx_delay_config;
 
 typedef struct {
@@ -73,6 +76,7 @@ typedef struct {
   int32_t damp2;              /* Y:$002D: line 2 damping state */
   int32_t delay_flags;        /* Y:$0018: the live delay, mute and type bits */
   ifx_wipe_core_state wipe;
+  ifx_analog_core_state analog;
   ifx_process_block block;
 } ifx_delay_state;
 

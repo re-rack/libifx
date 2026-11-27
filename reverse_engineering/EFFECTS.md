@@ -83,8 +83,10 @@ invalid (`NOT A CONFIG`).
   `0x0000vv` (the value), written as TXL twice with TXH/TXM left at 0, then CVR `0x95` (host
   command `$2A`). The knob, COMPARE (`C:066C`, `C:0679`) and MIDI controllers use it.
 - **Direct levels.** L DIR LVL (3) and R DIR LVL (4) also drive latches `X:8101` and `X:8001`
-  through the 59-entry curve `0x31CE`, while DIRECT HUSH (5) is PRE; POST zeroes the latches. They
-  are the analog direct path's levels.
+  through the 59-entry curve `0x31CE` (`C:31C9`), while DIRECT HUSH (5) is PRE; POST zeroes the
+  latches. `C:0EE0` writes them before sending the message. They are the analog direct path's
+  levels. The curve is T1 in 8 bits, `round(255·T1)` within one LSB, 255 at 58 and 128 at 46.
+  BYPASS (`2Fh.5`, `C:0E49`) sets both to `0x80`.
 - **MIDI controllers** (`C:0759`): `LLIM + round((128 − cc)·(ULIM − LLIM)/128)`.
 
 ### Presets

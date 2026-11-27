@@ -39,9 +39,9 @@ writes `<path>.tmp` and renames it, so a failed run leaves the old file alone.
 
 `tables.bin` holds the library's eleven tables as the DSP's P memory holds them
 (the ten shared-image tables at `P:$07BE..$0A0F` and configuration 2's reverb type
-table at `P:$0172`), proving `src/ifx_tables.c` is the firmware's word for word,
-and the MCU's 108-byte window table at EPROM `0x12C8`, each parameter's exclusive
-maximum.
+table at `P:$0172`) and the MCU's direct latch curve at EPROM `0x31CE`, proving
+`src/ifx_tables.c` is the firmware's word for word, and the MCU's 108-byte window
+table at EPROM `0x12C8`, each parameter's exclusive maximum.
 
 An effect fixture holds its knob table, setup records for each knob on its own
 (every position when it has 32 or fewer, else 32 spread positions plus the
@@ -82,7 +82,15 @@ and regeneration whose limiter sum lands on its rounding boundary.
   is the block's answer for input frame m − 32, a block uses the config passed
   with the frame that completes it, all four entry points agree over random
   buffer sizes (0, 1, 31, 32, 33 and large among them), split and float work in
-  place, and junk in the upper eight input bits is ignored.
+  place, and junk in the upper eight input bits is ignored. The modelled analog
+  stages: every effect runs twice on the same input and turns, once with
+  `analog_direct` 0 and `output_level` 100 as every fixture replay runs, once as
+  scheduled. The second output must be the first plus the negated input of 32
+  frames before times latch/256, rounded half up and saturated, then times the
+  output gain ramping from the last block's to the block's own, rounded half up.
+  The run walks every DIR LVL with L and R apart and every OUTPUT LEVEL, turns
+  mid-block and several times within one block, switches to POST, passes both
+  knobs past each end of their windows, and must saturate at both rails.
 - **Effect fixtures:** the knob table matches; every setup record's words match;
   setup at min−1 and max+1 equals setup at min and max; configs are filled with
   junk before setup; setup rejects NULL pointers.

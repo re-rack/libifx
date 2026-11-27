@@ -11,6 +11,8 @@ typedef struct {
   int direct_left;      /* 0..58: L DIR LVL */
   int direct_right;     /* 0..58: R DIR LVL */
   int direct_hush;      /* 0..1: PRE or POST */
+  int analog_direct;    /* 0..1: the analog direct path off or on, heard at DIRECT HUSH PRE */
+  int output_level;     /* 0..100: OUTPUT LEVEL, percent; 100 passes the output unchanged */
   int hush;             /* 0..1: HUSH I/O */
   int hush_threshold;   /* 0..24: EXP THRESH */
   int hush_release;     /* 0..9: REL RATE */

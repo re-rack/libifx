@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "ifx_analog_core.h"
 #include "ifx_chorus_core.h"
 #include "ifx_front_core.h"
 #include "ifx_hush_core.h"
@@ -33,6 +34,8 @@ enum {
 
 typedef struct {
   int32_t coef[IFX_CHORUS8_COEF_COUNT];
+  int32_t direct_latch[2]; /* X:8101 and X:8001: the analog direct path's L and R bytes */
+  int32_t output_gain;     /* OUTPUT LEVEL, 0x10000 unity */
 } ifx_chorus8_config;
 
 typedef struct {
@@ -40,6 +43,7 @@ typedef struct {
   ifx_front_core_state front;
   ifx_hush_core_state hush;
   ifx_chorus_core_state chorus;
+  ifx_analog_core_state analog;
   ifx_process_block block;
 } ifx_chorus8_state;
 

@@ -1,12 +1,14 @@
 #include "ifx_pitch_reverb_setup.h"
 
+#include "ifx_analog_design.h"
 #include "ifx_ducker_design.h"
 #include "ifx_hush_design.h"
 #include "ifx_mixer_design.h"
 #include "ifx_pitch_design.h"
 #include "ifx_reverb_net_design.h"
 
-/* The MCU's windows at EPROM 0x12C8, exclusive maxima. */
+/* Exclusive maxima: the MCU's windows at EPROM 0x12C8, and the library's
+ * ANALOG_DIRECT and OUTPUT_LEVEL. */
 enum {
   EFFECTS_LEVEL_MIN = 0,
   EFFECTS_LEVEL_MAX = 59,
@@ -16,6 +18,10 @@ enum {
   DIRECT_RIGHT_MAX = 59,
   DIRECT_HUSH_MIN = 0,
   DIRECT_HUSH_MAX = 2,
+  ANALOG_DIRECT_MIN = 0,
+  ANALOG_DIRECT_MAX = 2,
+  OUTPUT_LEVEL_MIN = 0,
+  OUTPUT_LEVEL_MAX = 101,
   PITCH_LEVEL_MIN = 0,
   PITCH_LEVEL_MAX = 59,
   DELAY_LEVEL_MIN = 0,
@@ -72,6 +78,8 @@ int ifx_pitch_reverb_setup_config(const ifx_pitch_reverb_setup_raw *raw,
   const int direct_left = ifx_window(raw->direct_left, DIRECT_LEFT_MIN, DIRECT_LEFT_MAX);
   const int direct_right = ifx_window(raw->direct_right, DIRECT_RIGHT_MIN, DIRECT_RIGHT_MAX);
   const int direct_hush = ifx_window(raw->direct_hush, DIRECT_HUSH_MIN, DIRECT_HUSH_MAX);
+  const int analog_direct = ifx_window(raw->analog_direct, ANALOG_DIRECT_MIN, ANALOG_DIRECT_MAX);
+  const int output_level = ifx_window(raw->output_level, OUTPUT_LEVEL_MIN, OUTPUT_LEVEL_MAX);
   const int pitch_level = ifx_window(raw->pitch_level, PITCH_LEVEL_MIN, PITCH_LEVEL_MAX);
   const int delay_level = ifx_window(raw->delay_level, DELAY_LEVEL_MIN, DELAY_LEVEL_MAX);
   const int reverb_level = ifx_window(raw->reverb_level, REVERB_LEVEL_MIN, REVERB_LEVEL_MAX);
@@ -154,5 +162,8 @@ int ifx_pitch_reverb_setup_config(const ifx_pitch_reverb_setup_raw *raw,
   delay_voice[0] = 0;
   delay_voice[1] = 0;
   delay_voice[2] = 0;
+  config->direct_latch[0] = ifx_analog_design_latch(analog_direct, direct_hush, direct_left);
+  config->direct_latch[1] = ifx_analog_design_latch(analog_direct, direct_hush, direct_right);
+  config->output_gain = ifx_analog_design_output(output_level);
   return 0;
 }

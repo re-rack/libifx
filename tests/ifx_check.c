@@ -68,6 +68,7 @@ static const native_table k_tables[] = {
     {"ifx_fine_pitch_table", ifx_fine_pitch_table, IFX_FINE_PITCH_TABLE_WORDS},
     {"ifx_reverb_type_table", &ifx_reverb_type_table[0][0],
      IFX_REVERB_TYPE_COUNT * IFX_REVERB_TYPE_TABLE_WORDS},
+    {"ifx_direct_table", ifx_direct_table, IFX_DIRECT_TABLE_WORDS},
 };
 
 #define TABLE_COUNT (sizeof k_tables / sizeof k_tables[0])
@@ -587,12 +588,210 @@ done:
   return item_failures == 0 ? 0 : 1;
 }
 
+/* --- the analog stages -------------------------------------------------- */
+
+#define ANALOG_FRAMES 16384u
+#define ANALOG_BLOCKS (ANALOG_FRAMES / IFX_BLOCK_FRAMES)
+
+typedef struct {
+  int left;   /* L DIR LVL */
+  int right;  /* R DIR LVL */
+  int post;   /* DIRECT HUSH */
+  int direct; /* analog_direct as passed, before setup clamps it */
+  int output; /* output_level as passed */
+} analog_setting;
+
+/* The setting at input frame `frame`, turned mid-block every 64 frames: every
+ * DIR LVL with L and R apart, POST, the switch past both ends of its window
+ * and off, the defaults for the full-scale input, every OUTPUT LEVEL, past
+ * both ends of its window, then turns 7 frames apart. */
+static analog_setting analog_schedule(uint32_t frame) {
+  analog_setting setting = {58, 46, 0, 1, 100};
+  const uint32_t step = (frame + 47u) / 64u;
+  if (step < 59u) {
+    setting.left = (int)step;
+    setting.right = 58 - (int)step;
+  } else if (step < 66u) {
+    setting.post = 1;
+  } else if (step < 70u) {
+    setting.direct = 2;
+  } else if (step < 74u) {
+    setting.direct = -1;
+  } else if (step < 78u) {
+    setting.direct = 0;
+  } else if (step >= 128u && step < 229u) {
+    setting.output = (int)step - 128;
+  } else if (step >= 229u && step < 233u) {
+    setting.output = -1;
+  } else if (step >= 233u && step < 237u) {
+    setting.output = 101;
+  } else if (step >= 237u) {
+    setting.output = (int)((frame / 7u * 37u) % 101u);
+  }
+  return setting;
+}
+
+/* Noise with junk above bit 23 and the extremes, and a full-scale square
+ * whose dry and wet add past both rails. */
+static int32_t analog_input(uint32_t frame, uint32_t *seed) {
+  const uint32_t step = (frame + 47u) / 64u;
+  if (step >= 78u && step < 128u) {
+    return (frame / 512u) % 2u == 0u ? 0x7FFFFF : -0x800000;
+  }
+  const uint32_t random = next_random(seed);
+  if (frame % 101u == 0u) {
+    return (frame / 101u) % 2u == 0u ? 0x7FFFFF : -0x800000;
+  }
+  const int32_t word = (int32_t)(random & 0xFFFFFFu) - 0x800000;
+  return (frame & 1u) != 0u ? (int32_t)((uint32_t)word | 0xA5000000u) : word;
+}
+
+static int analog_find(const ifx_effect *effect, int param) {
+  for (unsigned knob = 0; knob < effect->knobs; knob++) {
+    if (effect->knob[knob].param == param) {
+      return (int)knob;
+    }
+  }
+  return -1;
+}
+
+static int analog_apply(const ifx_effect *effect, void *instance, const int knob[3],
+                        const analog_setting *setting, int direct, int output) {
+  return effect->set_knob(instance, (unsigned)knob[0], setting->left) != 0 ||
+                 effect->set_knob(instance, (unsigned)knob[1], setting->right) != 0 ||
+                 effect->set_knob(instance, (unsigned)knob[2], setting->post) != 0 ||
+                 effect->set_analog(instance, direct, output) != 0
+             ? -1
+             : 0;
+}
+
+/* The latch a setting selects: the MCU's byte at PRE, zero at POST or with
+ * the switch off after clamping. */
+static int32_t analog_latch(const analog_setting *setting, int level) {
+  return setting->direct >= 1 && setting->post == 0 ? ifx_direct_table[level] : 0;
+}
+
+/* OUTPUT LEVEL's gain, 0x10000 at 100 % after clamping. */
+static int64_t analog_gain(const analog_setting *setting) {
+  const int level = setting->output < 0 ? 0 : (setting->output > 100 ? 100 : setting->output);
+  return ((int64_t)level * 0x10000 + 50) / 100;
+}
+
+/* Two instances on the same input and turns: one with the analog stages as
+ * every fixture runs them (direct off, output 100 %), one as scheduled. The
+ * second must be the first plus the dry, saturated, then scaled by the
+ * output gain ramping over each block. */
+static void check_analog_effect(const ifx_effect *effect, unsigned *high, unsigned *low) {
+  const int knob[3] = {analog_find(effect, 3), analog_find(effect, 4), analog_find(effect, 5)};
+  if (knob[0] < 0 || knob[1] < 0 || knob[2] < 0) {
+    detail("%s: no L DIR LVL, R DIR LVL or DIRECT HUSH knob", effect->name);
+    failed();
+    return;
+  }
+  int32_t values[64];
+  for (unsigned k = 0; k < effect->knobs; k++) {
+    values[k] = effect->knob[k].def;
+  }
+  void *off = effect->open(values);
+  void *on = effect->open(values);
+  int32_t *in = malloc(ANALOG_FRAMES * sizeof *in);
+  int32_t (*want)[2] = malloc(ANALOG_FRAMES * sizeof *want);
+  int32_t (*got)[2] = malloc(ANALOG_FRAMES * sizeof *got);
+  analog_setting *block = malloc((ANALOG_BLOCKS + 1u) * sizeof *block);
+  if (off == NULL || on == NULL || in == NULL || want == NULL || got == NULL || block == NULL) {
+    detail("%s: out of memory", effect->name);
+    failed();
+    goto done;
+  }
+  /* block[0] is what the instances opened with; block[b + 1] is block b's. */
+  block[0] = (analog_setting){0, 0, 0, 0, 100};
+  uint32_t seed = 0xD1EC7u;
+  analog_setting current = {-1, -1, -1, -1, -1};
+  for (uint32_t frame = 0; frame < ANALOG_FRAMES; frame++) {
+    const analog_setting next = analog_schedule(frame);
+    if (memcmp(&next, &current, sizeof next) != 0) {
+      current = next;
+      if (analog_apply(effect, off, knob, &current, 0, 100) != 0 ||
+          analog_apply(effect, on, knob, &current, current.direct, current.output) != 0) {
+        detail("%s: setup failed at frame %u", effect->name, (unsigned)frame);
+        failed();
+        goto done;
+      }
+    }
+    in[frame] = analog_input(frame, &seed);
+    effect->frame(off, in[frame], want[frame]);
+    effect->frame(on, in[frame], got[frame]);
+    if (frame % IFX_BLOCK_FRAMES == IFX_BLOCK_FRAMES - 1u) {
+      block[frame / IFX_BLOCK_FRAMES + 1u] = current;
+    }
+  }
+  for (uint32_t frame = 0; frame < ANALOG_FRAMES; frame++) {
+    int32_t expect[2] = {want[frame][0], want[frame][1]};
+    if (frame >= IFX_BLOCK_FRAMES) {
+      const analog_setting *setting = &block[frame / IFX_BLOCK_FRAMES];
+      const int64_t dry = -(int64_t)ifx_s24((uint32_t)in[frame - IFX_BLOCK_FRAMES]);
+      const int32_t latch[2] = {analog_latch(setting, setting->left),
+                                analog_latch(setting, setting->right)};
+      const int64_t from = analog_gain(&block[frame / IFX_BLOCK_FRAMES - 1u]);
+      const int64_t to = analog_gain(setting);
+      const int64_t gain = from + (((to - from) * (frame % IFX_BLOCK_FRAMES + 1u)) >> 5);
+      for (unsigned side = 0; side < 2u; side++) {
+        int64_t sum = want[frame][side] + ((dry * latch[side] + 128) >> 8);
+        if (sum > IFX_W24_MAX) {
+          (*high)++;
+          sum = IFX_W24_MAX;
+        } else if (sum < IFX_W24_MIN) {
+          (*low)++;
+          sum = IFX_W24_MIN;
+        }
+        expect[side] = (int32_t)((sum * gain + 0x8000) >> 16);
+      }
+    }
+    if (got[frame][0] != expect[0] || got[frame][1] != expect[1]) {
+      detail("%s: frame %u is L %d R %d, the definition L %d R %d", effect->name, (unsigned)frame,
+             (int)got[frame][0], (int)got[frame][1], (int)expect[0], (int)expect[1]);
+      failed();
+      break;
+    }
+  }
+done:
+  if (off != NULL) {
+    effect->close(off);
+  }
+  if (on != NULL) {
+    effect->close(on);
+  }
+  free(in);
+  free(want);
+  free(got);
+  free(block);
+}
+
+static unsigned check_analog(void) {
+  item_failures = 0;
+  item_shown = 0;
+  unsigned high = 0;
+  unsigned low = 0;
+  for (unsigned e = 0; e < sizeof k_effects / sizeof k_effects[0]; e++) {
+    check_analog_effect(k_effects[e], &high, &low);
+  }
+  if (high == 0u || low == 0u) {
+    detail("the dry saturates %u times high and %u low; both must happen", high, low);
+    failed();
+  }
+  printf("%-17s %s  %u effects, %u frames each, %u and %u saturated\n", "host/analog",
+         item_failures == 0 ? "PASS" : "FAIL", (unsigned)(sizeof k_effects / sizeof k_effects[0]),
+         ANALOG_FRAMES, high, low);
+  return item_failures == 0 ? 0 : 1;
+}
+
 static unsigned check_host(void) {
   unsigned failures = 0;
   failures += check_latency();
   failures += check_entry_points();
   failures += check_in_place();
   failures += check_junk();
+  failures += check_analog();
   return failures;
 }
 

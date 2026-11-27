@@ -1,5 +1,6 @@
 #include "ifx_delay.h"
 
+#include "ifx_analog_core.h"
 #include "ifx_dsp_math.h"
 #include "ifx_mixer_core.h"
 #include "ifx_mixer_design.h"
@@ -193,6 +194,8 @@ static void delay_block(ifx_delay_state *state, const ifx_delay_config *config,
                          config->coef[IFX_DELAY_COEF_DIRECT_LEFT],
                          config->coef[IFX_DELAY_COEF_DIRECT_RIGHT],
                          (flags & IFX_MIXER_DESIGN_FLAG_DIRECT) != 0, out_l, out_r);
+  ifx_analog_core_process(&state->analog, in, config->direct_latch[0], config->direct_latch[1],
+                          config->output_gain, out_l, out_r);
 }
 
 void ifx_delay_state_init(ifx_delay_state *state, const ifx_delay_config *config) {
@@ -211,6 +214,7 @@ void ifx_delay_state_init(ifx_delay_state *state, const ifx_delay_config *config
   init_config(state);
   state->delay_flags = config->coef[IFX_DELAY_COEF_DELAY_FLAGS];
   ifx_wipe_core_state_init(&state->wipe);
+  ifx_analog_core_state_init(&state->analog, config->output_gain);
   ifx_process_block_init(&state->block);
 }
 

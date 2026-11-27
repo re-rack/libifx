@@ -37,6 +37,8 @@ static const table_source k_tables[] = {
 };
 
 #define TABLE_COUNT (sizeof k_tables / sizeof k_tables[0])
+/* The MCU's direct latch curve, which C:31C9 reads. */
+#define DIRECT_TABLE 0x31CEu
 #define PRESET_FIRST 81u
 #define PRESET_LAST 160u
 
@@ -80,6 +82,13 @@ static int record_tables(ifx_fixture_writer *writer, const ifx_emu *emu) {
   free(words);
 
   const uint8_t *eprom = ifx_emu_eprom(emu);
+  int32_t direct[IFX_DIRECT_TABLE_WORDS];
+  for (unsigned i = 0; i < IFX_DIRECT_TABLE_WORDS; i++) {
+    direct[i] = eprom[DIRECT_TABLE + i];
+  }
+  if (add_table(writer, "ifx_direct_table", &first, direct, IFX_DIRECT_TABLE_WORDS) != 0) {
+    return -1;
+  }
   int32_t window[IFX_EMU_PARAMETER_COUNT];
   for (unsigned i = 0; i < IFX_EMU_PARAMETER_COUNT; i++) {
     window[i] = eprom[IFX_EMU_WINDOW_TABLE + i];

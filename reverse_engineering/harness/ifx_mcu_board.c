@@ -20,16 +20,16 @@
 #define IFX_MCU_BOARD_HOST_PAGE_FIRST 0x80u
 #define IFX_MCU_BOARD_HOST_PAGE_LAST 0x87u
 
-#define IFX_MCU_BOARD_XDATA_PANEL_OUT_A 0x8001u
+#define IFX_MCU_BOARD_XDATA_DIRECT_RIGHT 0x8001u
 #define IFX_MCU_BOARD_XDATA_PANEL_IN 0x8002u
 #define IFX_MCU_BOARD_XDATA_LEDS 0x8003u
 #define IFX_MCU_BOARD_XDATA_DIGIT_LO 0x8004u
 #define IFX_MCU_BOARD_XDATA_SEG_LO 0x8005u
 #define IFX_MCU_BOARD_XDATA_DIGIT_HI 0x8006u
 #define IFX_MCU_BOARD_XDATA_SEG_HI 0x8007u
-#define IFX_MCU_BOARD_XDATA_PANEL_OUT_B 0x8101u
+#define IFX_MCU_BOARD_XDATA_DIRECT_LEFT 0x8101u
 
-/* The two direct-path level latches, X:8001 (left) and X:8101 (right). */
+/* The two direct-path level latches: X:8101 takes L DIR LVL, X:8001 R DIR LVL. */
 enum { DIRECT_LEFT = 0, DIRECT_RIGHT = 1, DIRECT_COUNT = 2 };
 
 typedef struct {
@@ -72,7 +72,7 @@ struct ifx_mcu_board {
 
   uint8_t p1;
   uint8_t panel_in;
-  uint8_t panel_out[DIRECT_COUNT];
+  uint8_t direct[DIRECT_COUNT];
   uint8_t leds;
   uint8_t digit[2];
   uint8_t seg[2];
@@ -148,8 +148,8 @@ static void board_scan_knob(ifx_mcu_board *board, ifx_mcu_board_encoder encoder)
 
 static bool board_xdata_peek(const ifx_mcu_board *board, uint16_t addr, uint8_t *value) {
   switch (addr) {
-  case IFX_MCU_BOARD_XDATA_PANEL_OUT_A:
-    *value = board->panel_out[DIRECT_LEFT];
+  case IFX_MCU_BOARD_XDATA_DIRECT_RIGHT:
+    *value = board->direct[DIRECT_RIGHT];
     return true;
   case IFX_MCU_BOARD_XDATA_PANEL_IN:
     *value = (uint8_t)~board->panel_in;
@@ -169,8 +169,8 @@ static bool board_xdata_peek(const ifx_mcu_board *board, uint16_t addr, uint8_t 
   case IFX_MCU_BOARD_XDATA_SEG_HI:
     *value = board->seg[1];
     return true;
-  case IFX_MCU_BOARD_XDATA_PANEL_OUT_B:
-    *value = board->panel_out[DIRECT_RIGHT];
+  case IFX_MCU_BOARD_XDATA_DIRECT_LEFT:
+    *value = board->direct[DIRECT_LEFT];
     return true;
   default:
     break;
@@ -212,8 +212,8 @@ static void board_xdata_write(cpu_t *cpu, uint16_t addr, uint8_t value, void *us
     return;
   }
   switch (addr) {
-  case IFX_MCU_BOARD_XDATA_PANEL_OUT_A:
-    board->panel_out[DIRECT_LEFT] = value;
+  case IFX_MCU_BOARD_XDATA_DIRECT_RIGHT:
+    board->direct[DIRECT_RIGHT] = value;
     return;
   case IFX_MCU_BOARD_XDATA_LEDS:
     board->leds = value;
@@ -230,8 +230,8 @@ static void board_xdata_write(cpu_t *cpu, uint16_t addr, uint8_t value, void *us
   case IFX_MCU_BOARD_XDATA_SEG_HI:
     board->seg[1] = value;
     return;
-  case IFX_MCU_BOARD_XDATA_PANEL_OUT_B:
-    board->panel_out[DIRECT_RIGHT] = value;
+  case IFX_MCU_BOARD_XDATA_DIRECT_LEFT:
+    board->direct[DIRECT_LEFT] = value;
     return;
   default:
     break;
@@ -307,8 +307,8 @@ static void board_wire(ifx_mcu_board *board) {
 static void board_clear_panel(ifx_mcu_board *board) {
   board->p1 = 0;
   board->panel_in = 0;
-  board->panel_out[DIRECT_LEFT] = 0;
-  board->panel_out[DIRECT_RIGHT] = 0;
+  board->direct[DIRECT_LEFT] = 0;
+  board->direct[DIRECT_RIGHT] = 0;
   board->leds = 0;
   board->digit[0] = 0;
   board->digit[1] = 0;

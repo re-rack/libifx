@@ -1,10 +1,12 @@
 #include "ifx_chorus8_setup.h"
 
+#include "ifx_analog_design.h"
 #include "ifx_chorus_design.h"
 #include "ifx_hush_design.h"
 #include "ifx_mixer_design.h"
 
-/* The MCU's windows at EPROM 0x12C8, exclusive maxima. */
+/* Exclusive maxima: the MCU's windows at EPROM 0x12C8, and the library's
+ * ANALOG_DIRECT and OUTPUT_LEVEL. */
 enum {
   CHORUS_LEVEL_MIN = 0,
   CHORUS_LEVEL_MAX = 59,
@@ -14,6 +16,10 @@ enum {
   DIRECT_RIGHT_MAX = 59,
   DIRECT_HUSH_MIN = 0,
   DIRECT_HUSH_MAX = 2,
+  ANALOG_DIRECT_MIN = 0,
+  ANALOG_DIRECT_MAX = 2,
+  OUTPUT_LEVEL_MIN = 0,
+  OUTPUT_LEVEL_MAX = 101,
   REGEN_LEFT_MIN = 0,
   REGEN_LEFT_MAX = 59,
   REGEN_RIGHT_MIN = 0,
@@ -45,6 +51,8 @@ int ifx_chorus8_setup_config(const ifx_chorus8_setup_raw *raw, ifx_chorus8_confi
   const int direct_left = ifx_window(raw->direct_left, DIRECT_LEFT_MIN, DIRECT_LEFT_MAX);
   const int direct_right = ifx_window(raw->direct_right, DIRECT_RIGHT_MIN, DIRECT_RIGHT_MAX);
   const int direct_hush = ifx_window(raw->direct_hush, DIRECT_HUSH_MIN, DIRECT_HUSH_MAX);
+  const int analog_direct = ifx_window(raw->analog_direct, ANALOG_DIRECT_MIN, ANALOG_DIRECT_MAX);
+  const int output_level = ifx_window(raw->output_level, OUTPUT_LEVEL_MIN, OUTPUT_LEVEL_MAX);
   const int regen_left = ifx_window(raw->regen_left, REGEN_LEFT_MIN, REGEN_LEFT_MAX);
   const int regen_right = ifx_window(raw->regen_right, REGEN_RIGHT_MIN, REGEN_RIGHT_MAX);
   const int hush = ifx_window(raw->hush, HUSH_MIN, HUSH_MAX);
@@ -90,5 +98,8 @@ int ifx_chorus8_setup_config(const ifx_chorus8_setup_raw *raw, ifx_chorus8_confi
     ifx_chorus_design_voice(level, pan, delay, depth, rate,
                             &config->coef[IFX_CHORUS8_COEF_VOICES + 8u * voice]);
   }
+  config->direct_latch[0] = ifx_analog_design_latch(analog_direct, direct_hush, direct_left);
+  config->direct_latch[1] = ifx_analog_design_latch(analog_direct, direct_hush, direct_right);
+  config->output_gain = ifx_analog_design_output(output_level);
   return 0;
 }

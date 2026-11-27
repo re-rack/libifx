@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "ifx_analog_core.h"
 #include "ifx_chorus_core.h"
 #include "ifx_ducker_core.h"
 #include "ifx_front_core.h"
@@ -51,6 +52,8 @@ enum { IFX_CHORUS_REVERB_FLAG_REV_INPUT = 1 << 17 }; /* X:$0000 bit 17: REV INPU
 
 typedef struct {
   int32_t coef[IFX_CHORUS_REVERB_COEF_COUNT];
+  int32_t direct_latch[2]; /* X:8101 and X:8001: the analog direct path's L and R bytes */
+  int32_t output_gain;     /* OUTPUT LEVEL, 0x10000 unity */
 } ifx_chorus_reverb_config;
 
 typedef struct {
@@ -60,6 +63,7 @@ typedef struct {
   ifx_ducker_core_state ducker;
   ifx_chorus_core_state chorus;
   ifx_reverb_net_core_state reverb;
+  ifx_analog_core_state analog;
   ifx_process_block block;
 } ifx_chorus_reverb_state;
 

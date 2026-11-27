@@ -1,5 +1,6 @@
 #include "ifx_pitch.h"
 
+#include "ifx_analog_core.h"
 #include "ifx_mixer_core.h"
 #include "ifx_mixer_design.h"
 #include "ifx_regen_core.h"
@@ -45,6 +46,8 @@ static void pitch_block(ifx_pitch_state *state, const ifx_pitch_config *config,
                          config->coef[IFX_PITCH_COEF_DIRECT_LEFT],
                          config->coef[IFX_PITCH_COEF_DIRECT_RIGHT],
                          (flags & IFX_MIXER_DESIGN_FLAG_DIRECT) != 0, out_l, out_r);
+  ifx_analog_core_process(&state->analog, in, config->direct_latch[0], config->direct_latch[1],
+                          config->output_gain, out_l, out_r);
 }
 
 void ifx_pitch_state_init(ifx_pitch_state *state, const ifx_pitch_config *config) {
@@ -56,6 +59,7 @@ void ifx_pitch_state_init(ifx_pitch_state *state, const ifx_pitch_config *config
   ifx_pitch_core_state_init(&state->pitch, &k_layout, state->memory,
                             config->coef[IFX_PITCH_COEF_REG_LEFT],
                             config->coef[IFX_PITCH_COEF_REG_RIGHT]);
+  ifx_analog_core_state_init(&state->analog, config->output_gain);
   ifx_process_block_init(&state->block);
 }
 

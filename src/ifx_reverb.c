@@ -1,5 +1,6 @@
 #include "ifx_reverb.h"
 
+#include "ifx_analog_core.h"
 #include "ifx_dsp_math.h"
 #include "ifx_mixer_core.h"
 #include "ifx_mixer_design.h"
@@ -146,6 +147,8 @@ static void reverb_block(ifx_reverb_state *state, const ifx_reverb_config *confi
                          config->coef[IFX_REVERB_COEF_DIRECT_LEFT],
                          config->coef[IFX_REVERB_COEF_DIRECT_RIGHT],
                          (flags & IFX_MIXER_DESIGN_FLAG_DIRECT) != 0, out_l, out_r);
+  ifx_analog_core_process(&state->analog, in, config->direct_latch[0], config->direct_latch[1],
+                          config->output_gain, out_l, out_r);
 }
 
 void ifx_reverb_state_init(ifx_reverb_state *state, const ifx_reverb_config *config) {
@@ -161,6 +164,7 @@ void ifx_reverb_state_init(ifx_reverb_state *state, const ifx_reverb_config *con
   state->type = config->coef[IFX_REVERB_COEF_TYPE];
   init_config(state, config);
   ifx_wipe_core_state_init(&state->wipe);
+  ifx_analog_core_state_init(&state->analog, config->output_gain);
   ifx_process_block_init(&state->block);
 }
 

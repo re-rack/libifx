@@ -20,9 +20,13 @@ and knob settings, the same output samples as the hardware's DSP.
   samples, so audio fed at another rate plays as if the device's clock ran at that rate.
 - Feed it one mono input, as the device's single A/D does, and take its stereo output, one
   32-frame block later. `src/ifx.h` states the contract every effect follows.
-- Direct Post, the dry signal after the digital Hush, is part of each effect. Direct Pre is the
-  device's analog dry path and is not ported: with DIRECT HUSH at PRE the effect outputs only the
-  wet signal, and the host mixes in its own dry signal.
+- Direct Post, the dry signal after the digital Hush, is part of each effect, bit-exact. Direct Pre
+  is the device's analog dry path and is modelled, not bit-exact: with the raw `analog_direct` on
+  and DIRECT HUSH at PRE, the effect adds its input at L/R DIR LVL through the MCU's latch curve.
+  With it off, the effect outputs only what the DSP does, and at PRE a host mixes in its own dry.
+- The raw `output_level` is the panel's OUTPUT LEVEL pot, also modelled: 0..100 %, linear, ramped
+  over a block when it changes. At 100 % and with `analog_direct` off, the output is the DSP's,
+  bit-exact.
 
 ## Disclaimer
 

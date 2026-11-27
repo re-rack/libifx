@@ -30,13 +30,13 @@ warning-only edits above.
   `s51` reports, which is what `k_opcode_cycles[]` feeds into `cpu_step`.
 - `cpu.c` `MN_MOVX_A_AT_RI` / `MN_MOVX_AT_RI_A` (0xE2/0xE3, 0xF2/0xF3): the address was the 8-bit
   `@Ri` value alone, so every `MOVX` in the firmware's `P2`-banked host port read the wrong place.
-  Now `(P2 << 8) | Ri`.
+  Here it is `(P2 << 8) | Ri`.
 - `ports.c` `port_read_effective`: returned `latch & (ext | pull)`, which with the default
   `pull = 0xFF` dropped the external input level entirely and made every input pin read as its
-  latch. Now `(latch | ~pull) & ext`, so a pin left high reads high and one the firmware drove low
+  latch. Here it is `(latch | ~pull) & ext`, so a pin left high reads high and one the firmware drove low
   still reads low.
 - `cpu.c` interrupt acknowledge: taking an interrupt cost nothing, so timers ran one machine cycle
-  fast per interrupt. `cpu_service_interrupt` now sets `cpu->vector_cycles`, `cpu_step` adds it to
+  fast per interrupt. Here `cpu_service_interrupt` sets `cpu->vector_cycles`, `cpu_step` adds it to
   the step that vectors, and a harness that polls outside `cpu_step` must add
   `cpu->vector_cycles` to that step and clear it — see `../ifx_mcu_board.c`.
 

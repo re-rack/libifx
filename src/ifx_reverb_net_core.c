@@ -4,7 +4,6 @@
 #include "ifx_regen_core.h"
 
 enum {
-  BLOCK_MASK = IFX_BLOCK_FRAMES - 1u,
   MAX_TAPS = 4,
   NET_M = 0x3FBF,
   NET_TAPS = 3,
@@ -25,77 +24,78 @@ static uint32_t pointer(int32_t word) { return (uint32_t)word & 0xFFFFu; }
 void ifx_reverb_net_core_allpass(int32_t *table, int32_t memory[0x10000],
                                  const int32_t block[IFX_BLOCK_FRAMES], unsigned lines,
                                  uint32_t m) {
+  const uint32_t bufmask = ifx_agu_mask(m);
+  const uint32_t modulo = m + 1u;
   for (unsigned line = 0; line < lines; line++) {
     int32_t *const pair = &table[2u * line];
-    uint32_t r2 = pointer(pair[0]);
+    const uint32_t start = pointer(pair[0]);
     const int32_t c = ifx_s24((uint32_t)pair[1]);
-    int64_t a = ifx_word_acc(memory[r2]);
-    r2 = ifx_agu_step(r2, 1, m);
-    int32_t y0 = block[0];
-    for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i += 2u) {
-      a = ifx_macr(a, y0, c);
-      int64_t b = ifx_word_acc(memory[r2]);
-      r2 = ifx_agu_step(r2, -1, m);
-      const int32_t y1 = block[i + 1u];
-      memory[r2] = ifx_store24(a);
-      r2 = ifx_agu_step(r2, 2, m);
-      b = ifx_macr(b, c, y1);
-      a = ifx_word_acc(memory[r2]);
-      r2 = ifx_agu_step(r2, -1, m);
-      y0 = block[(i + 2u) & BLOCK_MASK];
-      memory[r2] = ifx_store24(b);
-      r2 = ifx_agu_step(r2, 2, m);
+    const uint32_t r = ifx_agu_step(start, 1, m);
+    const uint32_t base = r & ~bufmask;
+    uint32_t off = r & bufmask;
+    memory[ifx_agu_step(r, -1, m)] = ifx_macr_store(memory[start], block[0], c);
+    for (unsigned i = 1u; i < IFX_BLOCK_FRAMES; i++) {
+      const uint32_t address = base + off;
+      memory[address] = ifx_macr_store(memory[address], block[i], c);
+      if (++off == modulo) {
+        off = 0;
+      }
     }
-    pair[0] = (int32_t)ifx_agu_step(r2, -1, m);
+    pair[0] = (int32_t)(base + off);
   }
 }
 
 void ifx_reverb_net_core_taps(const int32_t *table, const int32_t memory[0x10000], unsigned taps,
                               int32_t gain, uint32_t m, int32_t block[IFX_BLOCK_FRAMES]) {
-  uint32_t r[MAX_TAPS];
+  const uint32_t bufmask = ifx_agu_mask(m);
+  const uint32_t modulo = m + 1u;
+  uint32_t base[MAX_TAPS];
+  uint32_t off[MAX_TAPS];
+  int32_t sum = 0;
   for (unsigned tap = 0; tap < taps; tap++) {
-    r[tap] = pointer(table[2u * tap]);
+    const uint32_t r = pointer(table[2u * tap]);
+    sum += memory[r];
+    const uint32_t next = ifx_agu_step(r, 1, m);
+    base[tap] = next & ~bufmask;
+    off[tap] = next & bufmask;
   }
-  for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    int64_t a = ifx_mpy(gain, memory[r[0]]);
-    r[0] = ifx_agu_step(r[0], 1, m);
-    for (unsigned tap = 1; tap + 1u < taps; tap++) {
-      a = ifx_mac(a, gain, memory[r[tap]]);
-      r[tap] = ifx_agu_step(r[tap], 1, m);
+  block[0] = ifx_round24_store(ifx_product(gain, sum));
+  for (unsigned i = 1u; i < IFX_BLOCK_FRAMES; i++) {
+    sum = 0;
+    for (unsigned tap = 0; tap < taps; tap++) {
+      sum += memory[base[tap] + off[tap]];
+      if (++off[tap] == modulo) {
+        off[tap] = 0;
+      }
     }
-    a = ifx_macr(a, gain, memory[r[taps - 1u]]);
-    r[taps - 1u] = ifx_agu_step(r[taps - 1u], 1, m);
-    block[i] = ifx_store24(a);
+    block[i] = ifx_round24_store(ifx_product(gain, sum));
   }
 }
 
 void ifx_reverb_net_core_damped(int32_t *table, int32_t memory[0x10000],
                                 const int32_t block[IFX_BLOCK_FRAMES], unsigned lines, int32_t damp,
                                 int32_t gain, uint32_t m) {
+  const uint32_t bufmask = ifx_agu_mask(m);
   for (unsigned line = 0; line < lines; line++) {
     int32_t *const pair = &table[2u * line];
     uint32_t r2 = pointer(pair[0]);
-    uint32_t r5 = ifx_agu_step(pointer(pair[1]), -1, m);
-    int32_t x0 = memory[r5];
-    r5 = ifx_agu_step(r5, 1, m);
-    int64_t a = ifx_mpy(gain, block[0]);
-    a = ifx_mac(a, damp, x0);
-    x0 = memory[r2];
-    r2 = ifx_agu_step(r2, 1, m);
-    a = ifx_macr(a, -x0, gain);
-    /* The 56-bit sum wraps modulo 2^56, so the feedback product can go last. */
+    uint32_t r5 = ifx_agu_step_masked(pointer(pair[1]), -1, m, bufmask);
+    const int32_t feedback = memory[r5];
+    r5 = ifx_agu_step_masked(r5, 1, m, bufmask);
+    const int32_t x0 = memory[r2];
+    r2 = ifx_agu_step_masked(r2, 1, m, bufmask);
+    int64_t a = ifx_round24(ifx_product(gain, block[0] - x0) + ifx_product(damp, feedback));
     for (unsigned i = 1u; i < IFX_BLOCK_FRAMES; i++) {
       const int32_t previous = ifx_store24(a);
       memory[r5] = previous;
-      r5 = ifx_agu_step(r5, 1, m);
-      x0 = memory[r2];
-      r2 = ifx_agu_step(r2, 1, m);
-      a = ifx_mac(ifx_mpy(gain, block[i]), -x0, gain);
-      a = ifx_macr(a, damp, previous);
+      r5 = ifx_agu_step_masked(r5, 1, m, bufmask);
+      const int32_t word = memory[r2];
+      r2 = ifx_agu_step_masked(r2, 1, m, bufmask);
+      a = ifx_round24(ifx_product(gain, block[i] - word) + ifx_product(damp, previous));
     }
     memory[r5] = ifx_store24(a);
     pair[0] = (int32_t)r2;
-    pair[1] = (int32_t)ifx_agu_step(r5, 1, m);
+    pair[1] = (int32_t)ifx_agu_step_masked(r5, 1, m, bufmask);
   }
 }
 
@@ -122,14 +122,19 @@ static void input_mix(const int32_t memory[0x10000], const int32_t input[IFX_BLO
       y0 = ifx_store24(ifx_mpyr(ducker_gain, mix_r));
     }
   }
+  const uint32_t mask = IFX_REGEN_CORE_LINE_M;
+  uint32_t base_l = delay_l & ~mask;
+  uint32_t base_r = delay_r & ~mask;
+  uint32_t off_l = delay_l & mask;
+  uint32_t off_r = delay_r & mask;
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
     const int32_t x0 = input[i];
-    int64_t a = ifx_mpy(x1, x0);
-    int64_t b = ifx_mpy(x0, y1);
-    a = ifx_macr(a, y0, memory[ifx_agu_step(delay_l, (int32_t)i, IFX_REGEN_CORE_LINE_M)]);
-    b = ifx_macr(b, y0, memory[ifx_agu_step(delay_r, (int32_t)i, IFX_REGEN_CORE_LINE_M)]);
-    work_l[i] = ifx_store24(a);
-    work_r[i] = ifx_store24(b);
+    const int64_t a = ifx_product(x1, x0) + ifx_product(y0, memory[base_l + off_l]);
+    const int64_t b = ifx_product(x0, y1) + ifx_product(y0, memory[base_r + off_r]);
+    work_l[i] = ifx_round24_store(a);
+    work_r[i] = ifx_round24_store(b);
+    off_l = (off_l + 1u) & mask;
+    off_r = (off_r + 1u) & mask;
   }
 }
 
@@ -163,25 +168,26 @@ void ifx_reverb_net_core_mix(int32_t memory[0x10000], int32_t bus[2u * IFX_BLOCK
   if ((ducker_mode & 2) != 0) {
     reverb_level = ifx_store24(ifx_mpyr(reverb_level, ducker_gain));
   }
-  uint32_t r_l = *read_l;
-  uint32_t r_r = *read_r;
+  const uint32_t mask = IFX_REGEN_CORE_LINE_M;
+  uint32_t base_l = *read_l & ~mask;
+  uint32_t base_r = *read_r & ~mask;
+  uint32_t off_l = *read_l & mask;
+  uint32_t off_r = *read_r & mask;
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    int64_t a = ifx_mpy(bus_level, bus[i]);
-    a = ifx_mac(a, delay_level, memory[r_l]);
-    a = ifx_macr(a, reverb_level, reverb_l[i]);
-    wet_l[i] = ifx_store24(a);
+    int64_t a = ifx_product(bus_level, bus[i]) + ifx_product(delay_level, memory[base_l + off_l]) +
+                ifx_product(reverb_level, reverb_l[i]);
+    wet_l[i] = ifx_round24_store(a);
     bus[i] = 0;
-    memory[r_l] = 0;
-    r_l = ifx_agu_step(r_l, 1, IFX_REGEN_CORE_LINE_M);
+    memory[base_l + off_l] = 0;
+    off_l = (off_l + 1u) & mask;
 
-    a = ifx_mpy(bus_level, bus[IFX_BLOCK_FRAMES + i]);
-    a = ifx_mac(a, delay_level, memory[r_r]);
-    a = ifx_macr(a, reverb_level, reverb_r[i]);
-    wet_r[i] = ifx_store24(a);
+    a = ifx_product(bus_level, bus[IFX_BLOCK_FRAMES + i]) +
+        ifx_product(delay_level, memory[base_r + off_r]) + ifx_product(reverb_level, reverb_r[i]);
+    wet_r[i] = ifx_round24_store(a);
     bus[IFX_BLOCK_FRAMES + i] = 0;
-    memory[r_r] = 0;
-    r_r = ifx_agu_step(r_r, 1, IFX_REGEN_CORE_LINE_M);
+    memory[base_r + off_r] = 0;
+    off_r = (off_r + 1u) & mask;
   }
-  *read_l = r_l;
-  *read_r = r_r;
+  *read_l = base_l + off_l;
+  *read_r = base_r + off_r;
 }

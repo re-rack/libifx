@@ -21,18 +21,38 @@ enum { IFX_W24_MAX = 0x7FFFFF, IFX_W24_MIN = -0x800000 };
 _Static_assert((-1 >> 1) == -1, "ifx_asr needs an arithmetic right shift");
 #endif
 
+/* The next-power-of-two window mask ifx_agu_step derives from M. */
+static inline uint32_t ifx_agu_mask(uint32_t m) {
+  uint32_t mask = m;
+  mask |= mask >> 1u;
+  mask |= mask >> 2u;
+  mask |= mask >> 4u;
+  mask |= mask >> 8u;
+  mask |= mask >> 16u;
+  return mask;
+}
+
+/* ifx_agu_step for a step shorter than the window, with its mask precomputed. */
+static inline uint32_t ifx_agu_step_masked(uint32_t address, int32_t delta, uint32_t m,
+                                           uint32_t bufmask) {
+  address &= 0xFFFFu;
+  const int32_t offset = (int32_t)(address & bufmask) + delta;
+  uint32_t reg = address + (uint32_t)delta;
+  if (offset > (int32_t)m) {
+    reg -= m + 1u;
+  } else if (offset < 0) {
+    reg += m + 1u;
+  }
+  return reg & 0xFFFFu;
+}
+
 /* The DSP56000 AGU's post-update of a 16-bit address with modulo M: M+1 words
  * in the next power-of-two window; a delta that is a multiple of the window
  * steps linearly. */
 static inline uint32_t ifx_agu_step(uint32_t address, int32_t delta, uint32_t m) {
   address &= 0xFFFFu;
   const uint32_t modulo = m + 1u;
-  uint32_t bufmask = m;
-  bufmask |= bufmask >> 1u;
-  bufmask |= bufmask >> 2u;
-  bufmask |= bufmask >> 4u;
-  bufmask |= bufmask >> 8u;
-  bufmask |= bufmask >> 16u;
+  const uint32_t bufmask = ifx_agu_mask(m);
   const uint32_t magnitude = delta < 0 ? 0u - (uint32_t)delta : (uint32_t)delta;
   uint32_t reg = address + (uint32_t)delta;
   /* A step shorter than the window wraps at most once. */
@@ -115,6 +135,33 @@ static inline int64_t ifx_mac(int64_t acc, int32_t s1, int32_t s2) {
 
 static inline int64_t ifx_macr(int64_t acc, int32_t s1, int32_t s2) {
   return ifx_round24(ifx_acc56(acc + ifx_product(s1, s2)));
+}
+
+/* RND followed by a move out, for a 56-bit accumulator value. */
+static inline int32_t ifx_round24_store(int64_t value) {
+  int64_t biased = value + 0x800000LL;
+  if ((biased & 0xFFFFFFLL) == 0) {
+    biased &= ~0x1000000LL;
+  }
+  const int64_t word = biased >> 24;
+  if (word > IFX_W24_MAX) {
+    return IFX_W24_MAX;
+  }
+  return word < IFX_W24_MIN ? IFX_W24_MIN : (int32_t)word;
+}
+
+/* MACR into a 24-bit word: the word moves the rounded product's A1, and
+ * only a tie depends on the word's parity. */
+static inline int32_t ifx_macr_store(int32_t word, int32_t s1, int32_t s2) {
+  const int64_t biased = ifx_product(s1, s2) + 0x800000LL;
+  int32_t sum = word + (int32_t)(biased >> 24);
+  if ((biased & 0xFFFFFFLL) == 0 && (sum & 1) != 0) {
+    sum--;
+  }
+  if (sum > IFX_W24_MAX) {
+    return IFX_W24_MAX;
+  }
+  return sum < IFX_W24_MIN ? IFX_W24_MIN : sum;
 }
 
 /* ADD and SUB of two accumulators, in mathematical order. */

@@ -18,7 +18,7 @@ The original firmware, run routine by routine in an emulator harness, is the ref
 | the EPROM, 32,768 bytes, SHA-256 `7f6162d9e77e9b63783df7a8158c646d287e746de1ca56bdbea63b92e60004b1` | the 27C256 of firmware v1.0, January 1995 |
 | the manual, SHA-256 `bda911de8908853575a79bcaae32d5dfd99ec52ca7656b004df992f7ee16034e` | the 1995 user's manual, 60 pages |
 
-The scripts find both by SHA-256, under any name, in the project root or `reverse_engineering/inputs/`. Never commit either, or anything that carries the firmware's bytes: records, disassembly, the Ghidra images, the Ghidra project. `.gitignore` keeps them out.
+The scripts find both by SHA-256, under any name, in the project root or `reverse_engineering/inputs/`; `make inputs`, which the record targets and `ghidra-prepare` run, downloads them there from the Internet Archive when absent. Never commit either, or anything that carries the firmware's bytes: records, disassembly, the Ghidra images, the Ghidra project. `.gitignore` keeps them out.
 
 ## Reference documentation
 
@@ -32,6 +32,7 @@ The scripts find both by SHA-256, under any name, in the project root or `revers
 | Path | Purpose |
 |---|---|
 | `reverse_engineering/` | Workspace scripts and docs; `make ghidra-prepare` writes the records, disassembly, call graph, seeds and Ghidra project under it, all untracked (`reverse_engineering/README.md`) |
+| `reverse_engineering/fetch_inputs.py` | Download the EPROM and the manual into `reverse_engineering/inputs/` unless present |
 | `reverse_engineering/build_workspace.py` | Verify the inputs, split the EPROM into records, disassemble both processors and write the analysis artifacts |
 | `reverse_engineering/mcs51_disasm.py` | The 8051 recursive-descent disassembler the workspace uses |
 | `reverse_engineering/build_ghidra.py` | Build and export the Ghidra project with PyGhidra only |
@@ -141,7 +142,7 @@ The emulator only records; every check runs offline.
 - A fixture holds: setup words for each knob on its own (every position for 32 or fewer, otherwise 32 evenly spread positions plus the default); four multi-knob presets (every knob at 33 %, 66 %, minimum, maximum, each built one knob at a time) plus the configuration's factory presets; one long audio run on the generated input (libgmajor2's `gm2_signal.c`), moving each knob through min, 33 %, 66 %, max and default, then from an active setting the effect names per knob (one where every section acts: on, audible, short delays, regen near the rails), once for every value of its mode knobs (delay type, reverb type), sweeping every knob and giving each ten fast turns 64 frames apart that land while the previous glide still moves, with segment lengths offset over the processing block, and delay-time knobs holding their maximum until the buffer wraps. Every output sample is stored.
 - **The recorder follows the device.** A knob turn is the MCU's own edit routine (the one PARAMETER ADJUST and MIDI CC use) followed by the DSP's handling of what the MCU sends. An adapter never copies staged words onto live ones and never takes a value from the library.
 - **The checker** replays every run through all four entry points with random buffer sizes and junk in the unused upper input bytes, checks that setup at min-1 and max+1 equals setup at min and max, and fills configs with junk before setup. A tables fixture holds every lookup table as the EPROM holds it. Internal state is not compared.
-- Make targets as in libgmajor2: `build`, `install`, `uninstall`, `check-install`, `check`, `check-fixture`, `check-tables`, `check-host`, `record-fixture`, `record-all-fixtures`, `coverage`, `benchmark-all-fx`, `benchmark-fx`, `check-convert`, `format`, `static-check`, `sanitize`, `clean`, `ghidra-prepare`, `ghidra-clean`, plus the harness's `harness`, `tools` and `dsp-core-check`. Every C file compiles with one warning set (libgmajor2's `STRICT`), warnings are errors, and all output goes to `build/`.
+- Make targets as in libgmajor2: `build`, `install`, `uninstall`, `check-install`, `check`, `check-fixture`, `check-tables`, `check-host`, `record-fixture`, `record-all-fixtures`, `coverage`, `benchmark-all-fx`, `benchmark-fx`, `check-convert`, `format`, `static-check`, `sanitize`, `clean`, `inputs`, `ghidra-prepare`, `ghidra-clean`, plus the harness's `harness`, `tools` and `dsp-core-check`. Every C file compiles with one warning set (libgmajor2's `STRICT`), warnings are errors, and all output goes to `build/`.
 - After adding an effect, run `coverage` and confirm by mutation that the fixture covers every path: a deliberately broken constant, rounding or branch in each new source must make `check` fail. Re-record only when an effect's description, the input or the fixture format changes, never because `src/` changed.
 
 **Before every commit**, `make format`, `make static-check`, `make sanitize`, `make check` and `make check-install` must all pass with no findings.

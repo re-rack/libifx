@@ -3,16 +3,22 @@
 The repository holds neither the EPROM nor the manual, nor any analysis output that carries the
 firmware's bytes. `make ghidra-prepare` builds the workspace locally into gitignored paths:
 
-1. `build_workspace.py` finds the EPROM (and the manual) by SHA-256, under any name, in the project
-   root or `reverse_engineering/inputs/`, re-derives the EPROM's layout from the DSP image headers
-   and checks it, splits the EPROM into records and checks each one's SHA-256, disassembles both
+1. `fetch_inputs.py` (`make inputs`, which the record targets run too) looks for the EPROM and the
+   manual by SHA-256, under any name, in the project root or `reverse_engineering/inputs/`. When
+   one is missing it downloads it from the Internet Archive into `inputs/`: the manual from
+   handelima.net's copy, the EPROM from the zip dbwbp.com's synth firmware library holds it in, a
+   copy of which also counts. When the EPROM cannot be downloaded it says what to find by hand;
+   the manual is a reference only, and the build goes on without it.
+2. `build_workspace.py` finds the EPROM the same way, re-derives its layout from the DSP image
+   headers and checks it, splits it into records and checks each one's SHA-256, disassembles both
    processors and writes the memory map, entry points, call graph and Ghidra seeds.
-2. `build_ghidra.py --prepare build/ghidra` writes the Ghidra programs' images for an import by hand.
-3. `build_ghidra.py` builds the analysed Ghidra project, once: an existing project is kept, since it
+3. `build_ghidra.py --prepare build/ghidra` writes the Ghidra programs' images for an import by hand.
+4. `build_ghidra.py` builds the analysed Ghidra project, once: an existing project is kept, since it
    may hold your own analysis.
 
 | Path | Content |
 |---|---|
+| `inputs/` | the EPROM image and the manual, downloaded or put there by hand |
 | `firmware/` | the records and `manifest.csv` (below) |
 | `asm/mcu.asm` | the 8051 program, `C:0000..4AEF`: decoded instructions where the recursive descent reaches, `db` lines with ASCII elsewhere |
 | `asm/dsp_boot.asm`, `asm/dsp_shared.asm` | the bootstrap and shared records disassembled at their load addresses |
@@ -27,8 +33,8 @@ firmware's bytes. `make ghidra-prepare` builds the workspace locally into gitign
 | `ghidra_analysis/` | functions, calls and blocks exported from it |
 | `../build/ghidra/` | the programs' images, with `IMPORT.txt` |
 
-`make ghidra-clean` removes everything but the Ghidra project and `ghidra_analysis/`, which only
-building a project writes. To rebuild the project, delete `ghidra/` and `ghidra_analysis/` yourself,
+`make ghidra-clean` removes everything but `inputs/`, the Ghidra project and `ghidra_analysis/`,
+which only building a project writes. To rebuild the project, delete `ghidra/` and `ghidra_analysis/` yourself,
 or build another beside it:
 `~/.local/share/gmajor2/pyghidra/bin/python reverse_engineering/build_ghidra.py Intellifex-fresh`.
 
@@ -40,7 +46,7 @@ or build another beside it:
 - Ghidra 12.2 (`GHIDRA=`, default `/opt/ghidra`) with Ghidra-Rare's DSP56000 module from
   [aleph-void/Ghidra-Rare](https://github.com/aleph-void/Ghidra-Rare) (the release's
   `ghidra_12.2_PUBLIC_*_DSP56000.zip` unpacked into `Ghidra/Extensions`), and a Python with
-  PyGhidra (`PYGHIDRA=`, default `~/.local/share/gmajor2/pyghidra/bin/python`). Step 3 is skipped
+  PyGhidra (`PYGHIDRA=`, default `~/.local/share/gmajor2/pyghidra/bin/python`). Step 4 is skipped
   without them. uv installs PyGhidra from Ghidra's bundled offline package:
 
 ```sh

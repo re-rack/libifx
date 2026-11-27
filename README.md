@@ -44,18 +44,20 @@ The repository holds neither the firmware nor the manual.
 | `make check-fixture FIXTURE=<name>`, `make check-tables`, `make check-host` | one part of `make check` |
 | `make check-install` | build a C and a C++ host against a staged install |
 | `make check-convert` | the float converter on every float, every SIMD path |
-| `make record-fixture FIXTURE=<name>`, `make record-all-fixtures` | record fixtures from the firmware harness (needs the EPROM) |
+| `make record-fixture FIXTURE=<name>`, `make record-all-fixtures` | record fixtures from the firmware harness (fetches the EPROM) |
+| `make inputs` | download the EPROM and the manual into `reverse_engineering/inputs/` unless present |
 | `make sanitize`, `make coverage` | the checks under ASan and UBSan; gcov coverage of `src/` |
 | `make benchmark-all-fx`, `make benchmark-fx FX=<name>` | processing time per frame |
-| `make ghidra-prepare` | verify the EPROM, split it, disassemble both processors and build the Ghidra project |
+| `make ghidra-prepare` | fetch and verify the EPROM, split it, disassemble both processors and build the Ghidra project |
 | `make ghidra-clean` | remove what `ghidra-prepare` generates, keeping the Ghidra project |
 | `make harness`, `make tools`, `make dsp-core-check` | the firmware harness, its programs and the DSP core's memory-map check (`reverse_engineering/README.md`) |
 | `make format` | apply clang-format |
 | `make static-check` | clang-format check, cppcheck, gcc and clang warnings and analyzers, ruff |
 | `make clean` | remove `build/` |
 
-Put the EPROM (and optionally the manual) into the project root or `reverse_engineering/inputs/`
-under any name; the scripts find them by SHA-256 ([`reverse_engineering/README.md`](reverse_engineering/README.md)).
+The targets that need the EPROM download it, and the manual, from the Internet Archive into
+`reverse_engineering/inputs/`. A copy of either in the project root or `reverse_engineering/inputs/`,
+under any name, is found by SHA-256 and used instead ([`reverse_engineering/README.md`](reverse_engineering/README.md)).
 
 ## Dependencies
 

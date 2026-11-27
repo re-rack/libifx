@@ -5,7 +5,7 @@
 #   make install                        libifx.a, the headers and ifx.pc under PREFIX (/usr/local),
 #                                       DESTDIR-aware; make uninstall removes them
 #   make check-install                  build a C and a C++ host against a staged install
-#   make check                          the tables fixture and the host checks
+#   make check                          every fixture and the host checks
 #   make check-fixture FIXTURE=<name>   one fixture, or several names in quotes
 #   make benchmark-all-fx               every effect on the Q23 test signal, ns per frame
 #   make benchmark-fx FX=<name>         one effect
@@ -15,6 +15,7 @@
 #                                       under qemu
 #   make record-fixture FIXTURE=<name>  rewrite one fixture from the firmware harness
 #   make record-all-fixtures            rewrite tests/fixtures/ from the firmware harness
+#   make inputs                         download the EPROM and the manual unless present
 #   make coverage                       gcov line and branch coverage of src/
 #   make sanitize                       check and the quick converter test under ASan and UBSan,
 #                                       with gcc and clang
@@ -25,16 +26,19 @@
 #   make tools                          build/tools/ifx_dsp_disasm, the DSP disassembler, the
 #                                       bring-up programs and the DSP core's memory-map check
 #   make dsp-core-check                 run the vendored DSP core's memory-map check
-#   make ghidra-prepare                 verify the EPROM, split it, disassemble both processors,
-#                                       and build the Ghidra project (see reverse_engineering/README.md)
-#   make ghidra-clean                   remove what ghidra-prepare generates, but not the Ghidra
-#                                       project and its exports
+#   make ghidra-prepare                 fetch and verify the EPROM, split it, disassemble both
+#                                       processors, and build the Ghidra project (see
+#                                       reverse_engineering/README.md)
+#   make ghidra-clean                   remove what ghidra-prepare generates, but not the inputs,
+#                                       the Ghidra project or its exports
 #   make clean                          remove every build artifact
 #
-# ghidra-prepare looks for the EPROM (and the manual) by SHA-256 in the project
-# root and in reverse_engineering/inputs/. The split records, disassembly, call
-# graph and CSVs land under reverse_engineering/, the Ghidra GUI import files
-# under build/ghidra. Everything else goes to build/.
+# The tools find the EPROM and the manual by SHA-256, under any name, in the
+# project root or reverse_engineering/inputs/. The record targets and
+# ghidra-prepare run inputs first, which downloads them from the Internet
+# Archive into reverse_engineering/inputs/ when absent. The split records,
+# disassembly, call graph and CSVs land under reverse_engineering/, the Ghidra
+# GUI import files under build/ghidra. Everything else goes to build/.
 
 CC ?= cc
 CXX ?= c++
@@ -243,12 +247,15 @@ check-convert-rvv:
 	fi
 endif
 
-record-all-fixtures: $(BUILD)/ifx_record
+inputs:
+	@$(PYTHON) $(RE)/fetch_inputs.py
+
+record-all-fixtures: $(BUILD)/ifx_record inputs
 	@mkdir -p tests/fixtures
 	@names=$$($(BUILD)/ifx_record --list) && \
 	  printf '%s\n' $$names | xargs -P $(JOBS) -I{} $(BUILD)/ifx_record {} tests/fixtures/{}.bin
 
-record-fixture: $(BUILD)/ifx_record
+record-fixture: $(BUILD)/ifx_record inputs
 	@if [ -z "$(FIXTURE)" ]; then echo 'usage: make record-fixture FIXTURE=<name>' >&2; exit 1; fi
 	@mkdir -p tests/fixtures
 	@for name in $(FIXTURE); do \
@@ -259,7 +266,7 @@ harness: $(LIBRARY)
 
 tools: $(TOOLS)
 
-ghidra-prepare: $(DISASSEMBLER_TOOL)
+ghidra-prepare: $(DISASSEMBLER_TOOL) inputs
 	@$(PYTHON) $(RE)/build_workspace.py --output $(RE) --disassembler $(DISASSEMBLER)
 	@$(PYTHON) $(RE)/build_ghidra.py --firmware $(FIRMWARE) --prepare build/ghidra
 	@if [ -e $(GHIDRA_PROJECT) ]; then \
@@ -433,7 +440,7 @@ $(BUILD_HARNESS)/%.o: $(HARNESS)/%.c Makefile
 -include $(DEPS)
 
 .PHONY: build install uninstall check-install check check-fixture check-tables check-host \
-        benchmark-all-fx benchmark-fx check-convert $(CONVERT_TARGETS) record-all-fixtures record-fixture harness tools \
-        ghidra-prepare ghidra-clean format dsp-core-check static-check static-ruff static-format \
+        benchmark-all-fx benchmark-fx check-convert $(CONVERT_TARGETS) inputs record-all-fixtures record-fixture harness \
+        tools ghidra-prepare ghidra-clean format dsp-core-check static-check static-ruff static-format \
         static-cppcheck static-clang static-gcc sanitize sanitize-gcc sanitize-clang exercise \
         coverage clean

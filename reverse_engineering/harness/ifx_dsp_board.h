@@ -11,8 +11,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* One frame is one input sample: 33 MHz of DSP clock over 39.0625 kHz. */
-#define IFX_DSP_BOARD_FRAME_CYCLES 423u
+/* One frame is one input sample, in the core's unit: DSP clock cycles, two per
+ * instruction cycle. 33 MHz of DSP clock over 39.0625 kHz. */
+#define IFX_DSP_BOARD_FRAME_CYCLES 846u
 /* 16-bit words for the A/D and the DAC on one frame sync. */
 #define IFX_DSP_BOARD_SSI_CLOCKS 32u
 

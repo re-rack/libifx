@@ -133,8 +133,11 @@ harness` builds `build/harness/libifxharness.a`, `make tools` the programs below
 | `ifx_dsp_disasm.c` | `build/tools/ifx_dsp_disasm`, the workspace's DSP disassembler |
 | `ifx_dsp_core_check.c` | `make dsp-core-check`: the vendored core's memory map |
 
-- **Schedule.** One frame is one input sample: 423 DSP instruction cycles (a 33 MHz DSP56001) and
-  a fixed number of 80C32 clocks. The firmware's own timing is asynchronous; this schedule is ours.
+- **Schedule.** One frame is one input sample: 846 DSP clock cycles, the unit the core counts in
+  (two per instruction cycle, a 33 MHz DSP56001), and a fixed number of 80C32 clocks. The
+  firmware's own timing is asynchronous; this schedule is ours, and the fixtures do not depend on
+  it: at half that clock, where the heaviest passes no longer fit their block, the recorder writes
+  the same bytes.
 - **Converters.** The A/D hands the receive register 16 bits; `ifx_emu_feed.adc16 = false` puts
   the whole 24-bit word into it instead, past the SSI's 16-bit word length, which the recorder uses.
   Output is the DSP's full 24-bit transmit words, of which the D/A keeps the top 16 bits.

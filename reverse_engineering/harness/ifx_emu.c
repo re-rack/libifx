@@ -271,11 +271,11 @@ static bool find_eprom(const char *root, char *path, size_t size) {
 }
 
 static uint32_t dsp_cycles_for(ifx_emu *emu, uint64_t mcu_clocks) {
-  /* 33 MHz of DSP clock over 12 MHz of MCU clock, two clocks per instruction
-   * cycle: 11/8 of a DSP cycle per MCU clock. */
+  /* 33 MHz of DSP clock over 12 MHz of MCU clock: 11/4 of a DSP clock cycle,
+   * the core's unit, per MCU clock. */
   emu->dsp_cycle_acc += (uint32_t)(mcu_clocks * 11u);
-  uint32_t cycles = emu->dsp_cycle_acc / 8u;
-  emu->dsp_cycle_acc -= cycles * 8u;
+  uint32_t cycles = emu->dsp_cycle_acc / 4u;
+  emu->dsp_cycle_acc -= cycles * 4u;
   return cycles;
 }
 

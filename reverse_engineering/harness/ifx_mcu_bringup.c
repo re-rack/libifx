@@ -44,10 +44,10 @@
 #include "ifx_emu.h"
 #include "ifx_mcu_board.h"
 
-/* 33 MHz of DSP clock, two clocks per instruction cycle, one frame per sample
- * period: the converters run at the frame rate, not at a round number. */
+/* 33 MHz of DSP clock, one frame per sample period: the converters run at the
+ * frame rate, not at a round number. */
 #define IFX_DSP_CLOCK_HZ 33000000u
-#define IFX_CLOCKS_PER_FRAME (2u * IFX_DSP_BOARD_FRAME_CYCLES)
+#define IFX_CLOCKS_PER_FRAME IFX_DSP_BOARD_FRAME_CYCLES
 #define IFX_SAMPLE_RATE_HZ ((double)IFX_DSP_CLOCK_HZ / (double)IFX_CLOCKS_PER_FRAME)
 #define IFX_Q23_FULL_SCALE 8388608.0
 /* -12 dBFS, in the 16 bits the A/D converter actually resolves. */

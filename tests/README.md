@@ -77,8 +77,7 @@ and regeneration whose limiter sum lands on its rounding boundary.
   ties each knob to the firmware: its `min` must be 0 and its `max + 1` the
   window entry for its MCU parameter.
 - **Host:** what has no firmware counterpart, checked against its definition.
-  `ifx_context_init` accepts a finite positive rate and refuses NULL, zero,
-  negative, NaN and infinite rates. `IFX_PROCESS_DEFINE` runs a test-only block
+  `IFX_PROCESS_DEFINE` runs a test-only block
   function: the first 32 output frames are the zero rest output, output frame m
   is the block's answer for input frame m − 32, a block uses the config passed
   with the frame that completes it, all four entry points agree over random
@@ -86,7 +85,7 @@ and regeneration whose limiter sum lands on its rounding boundary.
   place, and junk in the upper eight input bits is ignored.
 - **Effect fixtures:** the knob table matches; every setup record's words match;
   setup at min−1 and max+1 equals setup at min and max; configs are filled with
-  junk before setup; setup rejects NULL pointers and a context without a rate.
+  junk before setup; setup rejects NULL pointers.
   The audio run replays through split, float, interleaved and frame with random
   buffer sizes and junk in the upper input bits; the output must equal the
   fixture's words minus `0x066666`, saturated to Q23.
@@ -101,7 +100,7 @@ and regeneration whose limiter sum lands on its rounding boundary.
 ```
 make check                          every table, host and effect fixture
 make check-tables                   the tables fixture
-make check-host                     the context and the process entry points
+make check-host                     the process entry points
 make check-fixture FIXTURE=delay    one effect fixture
 make record-fixture FIXTURE=delay   rewrite it from the firmware harness
 make record-all-fixtures            rewrite every fixture

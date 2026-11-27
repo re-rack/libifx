@@ -16,12 +16,6 @@ int main(void) {
   static float samples[TEST_INSTALL_FRAMES];
   static int32_t words[TEST_INSTALL_FRAMES];
   static float back[TEST_INSTALL_FRAMES];
-  ifx_context context;
-  if (ifx_context_init(&context, IFX_DEVICE_RATE) != 0 ||
-      ifx_context_rate(&context) != IFX_DEVICE_RATE) {
-    printf("install %-7s FAIL  the context refused the device rate\n", TEST_INSTALL_LANGUAGE);
-    return 1;
-  }
   for (unsigned i = 0; i < TEST_INSTALL_FRAMES; i++) {
     samples[i] = ((float)((int)i - 256) / 512.0f);
   }

@@ -38,7 +38,6 @@ typedef struct {
   int delay4;
 } ifx_pitch_setup_raw;
 
-int ifx_pitch_setup_config(const ifx_context *context, const ifx_pitch_setup_raw *raw,
-                           ifx_pitch_config *config);
+int ifx_pitch_setup_config(const ifx_pitch_setup_raw *raw, ifx_pitch_config *config);
 
 #endif /* IFX_PITCH_SETUP_H */

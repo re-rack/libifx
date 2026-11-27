@@ -27,7 +27,6 @@ typedef struct {
   int gate_hold;        /* 0..99: HOLD TIME */
 } ifx_reverb_setup_raw;
 
-int ifx_reverb_setup_config(const ifx_context *context, const ifx_reverb_setup_raw *raw,
-                            ifx_reverb_config *config);
+int ifx_reverb_setup_config(const ifx_reverb_setup_raw *raw, ifx_reverb_config *config);
 
 #endif /* IFX_REVERB_SETUP_H */

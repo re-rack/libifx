@@ -32,7 +32,6 @@ typedef struct {
   int ducker_release;      /* 0..19: RELEASE RATE */
 } ifx_delay_setup_raw;
 
-int ifx_delay_setup_config(const ifx_context *context, const ifx_delay_setup_raw *raw,
-                           ifx_delay_config *config);
+int ifx_delay_setup_config(const ifx_delay_setup_raw *raw, ifx_delay_config *config);
 
 #endif /* IFX_DELAY_SETUP_H */

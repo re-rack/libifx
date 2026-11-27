@@ -58,7 +58,6 @@ typedef struct {
   int rate8;
 } ifx_chorus8_setup_raw;
 
-int ifx_chorus8_setup_config(const ifx_context *context, const ifx_chorus8_setup_raw *raw,
-                             ifx_chorus8_config *config);
+int ifx_chorus8_setup_config(const ifx_chorus8_setup_raw *raw, ifx_chorus8_config *config);
 
 #endif /* IFX_CHORUS8_SETUP_H */

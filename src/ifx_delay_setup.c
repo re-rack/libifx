@@ -67,9 +67,8 @@ static const int32_t k_type_flags[DELAY_TYPE_MAX] = {
 /* A time of 0 reads as one step. */
 static int32_t time_word(int time) { return SAMPLES_PER_STEP * (time == 0 ? 1 : time); }
 
-int ifx_delay_setup_config(const ifx_context *context, const ifx_delay_setup_raw *raw,
-                           ifx_delay_config *config) {
-  if (raw == NULL || config == NULL || ifx_context_rate(context) == 0.0) {
+int ifx_delay_setup_config(const ifx_delay_setup_raw *raw, ifx_delay_config *config) {
+  if (raw == NULL || config == NULL) {
     return -1;
   }
 

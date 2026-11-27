@@ -55,9 +55,8 @@ static int32_t low_freq_word(int value) {
   return ifx_s24(2u * low + 0x800000u);
 }
 
-int ifx_reverb_setup_config(const ifx_context *context, const ifx_reverb_setup_raw *raw,
-                            ifx_reverb_config *config) {
-  if (raw == NULL || config == NULL || ifx_context_rate(context) == 0.0) {
+int ifx_reverb_setup_config(const ifx_reverb_setup_raw *raw, ifx_reverb_config *config) {
+  if (raw == NULL || config == NULL) {
     return -1;
   }
 

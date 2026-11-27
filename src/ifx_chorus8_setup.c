@@ -36,9 +36,8 @@ enum {
   RATE_MAX = 255,
 };
 
-int ifx_chorus8_setup_config(const ifx_context *context, const ifx_chorus8_setup_raw *raw,
-                             ifx_chorus8_config *config) {
-  if (raw == NULL || config == NULL || ifx_context_rate(context) == 0.0) {
+int ifx_chorus8_setup_config(const ifx_chorus8_setup_raw *raw, ifx_chorus8_config *config) {
+  if (raw == NULL || config == NULL) {
     return -1;
   }
 

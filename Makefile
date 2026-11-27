@@ -10,7 +10,7 @@
 #   make benchmark-all-fx               every effect on the Q23 test signal, ns per frame
 #   make benchmark-fx FX=<name>         one effect
 #   make check-tables                   the tables fixture
-#   make check-host                     the context and the process entry points
+#   make check-host                     the process entry points
 #   make check-convert                  all 2^32 floats on every conversion path, NEON and RVV
 #                                       under qemu
 #   make record-fixture FIXTURE=<name>  rewrite one fixture from the firmware harness

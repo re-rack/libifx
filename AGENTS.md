@@ -40,7 +40,7 @@ The scripts find both by SHA-256, under any name, in the project root or `revers
 | `reverse_engineering/EFFECTS.md` | Verified firmware map and reusable findings for the native library |
 | `Makefile` | Every build, check and tool target; all output goes to `build/` or the workspace's untracked paths |
 | `README.md` | The project's front page |
-| `src/` | Library code only: `ifx.h`, the base and context, the converter, the process macro (`ifx_process.h`), the DSP56000 arithmetic (`ifx_dsp_math.h`), the shared tables, the shared and family cores and designs, and the effects |
+| `src/` | Library code only: `ifx.h`, the base, the converter, the process macro (`ifx_process.h`), the DSP56000 arithmetic (`ifx_dsp_math.h`), the shared tables, the shared and family cores and designs, and the effects |
 | `tests/` | The recorder, the checker, the signal generator and the fixtures (`tests/README.md`) |
 
 ## Native effect progress
@@ -66,7 +66,7 @@ Agreed with the user; change them only with the user.
 
 - **Name.** `libifx`, prefix `ifx_` / `IFX_`, GPL-3.0 like libgmajor2.
 - **Unit of an effect.** One effect per configuration: each configuration runs one DSP program whose sections share regeneration loops, the ducker and the mixer. Reverb type and delay type are knobs. Code several programs share becomes a family core (`ifx_<family>_core`) and shared setup math a family design (`ifx_<family>_design`).
-- **Sample rate.** The firmware has no rate math: every time is a fixed sample count and the SSI runs on external clocks. The library is bit-exact at the device's own rate, and a host at another rate resamples to it. The rate is an argument of the library's context init, 39,000 Hz by default (`IFX_DEVICE_RATE`), the rate the firmware's millisecond conversions assume; the exact rate is the A/D's CLKIN/128, which nothing on the board settles, while the release tables assume 39,062.5 Hz (`reverse_engineering/EFFECTS.md`, "Sample rate"). The rate tells the host what to resample to; no arithmetic depends on it.
+- **Sample rate.** The firmware has no rate math: every time is a fixed sample count and the SSI runs on external clocks. The library runs at the device's own rate only and takes no rate: unlike libgmajor2, whose firmware derives its coefficients from the rate, nothing here could use one, so the API has none. A host at another rate resamples to `IFX_DEVICE_RATE`, 39,000 Hz, the rate the firmware's millisecond conversions assume; the exact rate is the A/D's CLKIN/128, which nothing on the board settles, while the release tables assume 39,062.5 Hz (`reverse_engineering/EFFECTS.md`, "Sample rate").
 - **Channels and the dry path.** The DSP sees one mono input, the analog sum of the two input jacks, and writes stereo. Each effect is the DSP: mono in, stereo out, Direct Post included, bit-exact. How the analog front end forms the mono input is documented, not ported. Direct Pre, the analog dry path that never enters the DSP, is not ported either, and the library has no helper for it: with DIRECT HUSH at PRE an effect outputs the wet signal only, and a host adds its own dry signal.
 - **Harness cores.** DSP: Hatari's DSP56001 interpreter (`src/falcon/dsp_cpu.c`, `dsp_core.c`, `dsp_disasm.c`; GPL-2.0-or-later, <https://github.com/hatari/hatari>, upstream commit `36a8acf`), vendored under `reverse_engineering/harness/hatari/` with the board's memory and peripheral glue in place of the Falcon's. It implements the DSP56000 behaviour the firmware relies on that the xemu DSP56300 core cannot (multiple wrap-around modulo jumps, 16-bit AGU, the 15-entry stack, the 56001 SR and vectors), and its disassembler is the workspace's DSP disassembler. MCU: `mcs51_emulator` (MIT, C11, <https://github.com/martinribelotta/mcs51_emulator>, upstream commit `8789c25`) in its 8052 model (the board's 80C32 has 256 bytes of IRAM, which the parameters use), vendored under `reverse_engineering/harness/mcs51/` with its licence, patched only to build under the project's warning set, and cross-checked once against ucsim `s51` traces of the firmware's boot.
 - **Ghidra layout.** One program per DSP runtime (boot words `P:$0000..$009F`, one configuration image at `P:$00A0`, the shared image at `P:$0400`), a boot-only program, and the MCU program. Shared code is duplicated across the runtime programs: annotate it in one of them.
@@ -85,8 +85,7 @@ Agreed with the user; change them only with the user.
 Every effect has the same interface, the instance first and the knob struct by const pointer; `src/ifx.h` states the contract once and includes every effect inside `extern "C"`:
 
 ```c
-int  ifx_context_init(ifx_context *context, double rate);    /* the device rate, IFX_DEVICE_RATE by default */
-int  ifx_X_setup_config(const ifx_context *context, const ifx_X_setup_raw *raw, ifx_X_config *config);
+int  ifx_X_setup_config(const ifx_X_setup_raw *raw, ifx_X_config *config);
 void ifx_X_state_init(ifx_X_state *state, const ifx_X_config *config);
 void ifx_X_process_split(ifx_X_state *state, const ifx_X_config *config, const int32_t *in,
                          int32_t *out_l, int32_t *out_r, size_t frames);
@@ -98,7 +97,7 @@ void ifx_X_process_frame(ifx_X_state *state, const ifx_X_config *config, int32_t
                          int32_t out[2]);
 ```
 
-- `ifx_context_init` returns 0, or -1 for a NULL context or a rate that is not finite and positive, which leaves the context without a rate. Setup forces every raw knob into the firmware's own window and returns 0, or -1 for a NULL pointer or a context without a rate. A knob change means the host reruns setup and passes the new config, which applies from the next frame; there is no publish or apply call.
+- Setup forces every raw knob into the firmware's own window and returns 0, or -1 for a NULL pointer. A knob change means the host reruns setup and passes the new config, which applies from the next frame; there is no publish or apply call.
 - The interleaved entry point takes a mono input buffer and writes interleaved stereo. Any buffer size works. In split and f32 either output may be the input buffer; the interleaved output, twice the input's size, must not overlap it.
 - The four entry points are generated from one block function by `IFX_PROCESS_DEFINE`, which gathers and plays the blocks.
 - No allocation and no global state. `make build` writes `build/default/libifx.a` with `-fPIC` and hidden visibility; `make install` installs it with every header under `include/ifx/` and an `ifx.pc`. Headers stay valid C++17: `restrict` and `_Static_assert` stay out of what C++ reads.

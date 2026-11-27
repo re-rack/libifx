@@ -11,7 +11,6 @@
 #include "ifx_signal.h"
 #include "ifx_tables.h"
 
-#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,13 +41,6 @@ static void __attribute__((format(printf, 1, 2))) detail(const char *format, ...
 }
 
 static void failed(void) { item_failures++; }
-
-static void expect(int ok, const char *what) {
-  if (!ok) {
-    detail("%s", what);
-    failed();
-  }
-}
 
 static uint32_t next_random(uint32_t *state) {
   *state = *state * 1664525u + 1013904223u;
@@ -339,28 +331,6 @@ static int host_render(host_mode mode, const int32_t *in, size_t frames,
   return 0;
 }
 
-static unsigned check_context(void) {
-  item_failures = 0;
-  item_shown = 0;
-  ifx_context context;
-  context.rate = IFX_DEVICE_RATE;
-  expect(ifx_context_init(NULL, IFX_DEVICE_RATE) == -1, "a NULL context is accepted");
-  expect(ifx_context_init(&context, 0.0) == -1 && ifx_context_rate(&context) == 0.0,
-         "a rate of zero is accepted");
-  expect(ifx_context_init(&context, -1.0) == -1 && ifx_context_rate(&context) == 0.0,
-         "a negative rate is accepted");
-  expect(ifx_context_init(&context, (double)NAN) == -1 && ifx_context_rate(&context) == 0.0,
-         "a NaN rate is accepted");
-  expect(ifx_context_init(&context, (double)INFINITY) == -1 && ifx_context_rate(&context) == 0.0,
-         "an infinite rate is accepted");
-  expect(ifx_context_init(&context, IFX_DEVICE_RATE) == 0 &&
-             ifx_context_rate(&context) == IFX_DEVICE_RATE,
-         "the device rate is refused");
-  unsigned checks = 6;
-  printf("%-17s %s  %u contexts\n", "host/context", item_failures == 0 ? "PASS" : "FAIL", checks);
-  return item_failures == 0 ? 0 : 1;
-}
-
 /* Exactly 32 frames of zero rest output, then the block's answer; the config of
  * the frame that completed the block is the one it uses. */
 static unsigned check_latency(void) {
@@ -619,7 +589,6 @@ done:
 
 static unsigned check_host(void) {
   unsigned failures = 0;
-  failures += check_context();
   failures += check_latency();
   failures += check_entry_points();
   failures += check_in_place();
@@ -1002,7 +971,7 @@ static unsigned check_effect(const ifx_effect *effect) {
   }
   int knobs_ok = check_effect_knobs(effect, &fixture);
   if (effect->rejects() != 0) {
-    detail("the setup accepts a NULL pointer or a context without a rate");
+    detail("the setup accepts a NULL pointer");
     failed();
   }
   if (knobs_ok != 0) {

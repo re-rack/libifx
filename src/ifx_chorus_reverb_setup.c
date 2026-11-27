@@ -62,10 +62,9 @@ enum {
   HF_DAMP_MAX = 100,
 };
 
-int ifx_chorus_reverb_setup_config(const ifx_context *context,
-                                   const ifx_chorus_reverb_setup_raw *raw,
+int ifx_chorus_reverb_setup_config(const ifx_chorus_reverb_setup_raw *raw,
                                    ifx_chorus_reverb_config *config) {
-  if (raw == NULL || config == NULL || ifx_context_rate(context) == 0.0) {
+  if (raw == NULL || config == NULL) {
     return -1;
   }
 

@@ -60,25 +60,21 @@ typedef struct {
 #define IFX_EFFECT_DEFINE(fixture, module, knob_table, raw, extra_table, extra_count)              \
   _Static_assert((extra_count) <= IFX_EFFECT_EXTRA_MAX, "too many extra turns");                   \
   typedef struct {                                                                                 \
-    ifx_context context;                                                                           \
     ifx_##module##_config config;                                                                  \
     ifx_##module##_state state;                                                                    \
     int32_t values[sizeof(knob_table) / sizeof(knob_table)[0]];                                    \
   } fixture##_native;                                                                              \
                                                                                                    \
-  static int fixture##_config(const int32_t *values, const ifx_context *context,                   \
-                              ifx_##module##_config *config) {                                     \
+  static int fixture##_config(const int32_t *values, ifx_##module##_config *config) {              \
     ifx_##module##_setup_raw raw_values;                                                           \
     raw(values, &raw_values);                                                                      \
-    return ifx_##module##_setup_config(context, &raw_values, config);                              \
+    return ifx_##module##_setup_config(&raw_values, config);                                       \
   }                                                                                                \
                                                                                                    \
   static int fixture##_setup(const int32_t *values, int32_t *setup_words) {                        \
-    ifx_context context;                                                                           \
     ifx_##module##_config config;                                                                  \
     memset(&config, IFX_EFFECT_POISON, sizeof config);                                             \
-    if (ifx_context_init(&context, IFX_DEVICE_RATE) != 0 ||                                        \
-        fixture##_config(values, &context, &config) != 0) {                                        \
+    if (fixture##_config(values, &config) != 0) {                                                  \
       return -1;                                                                                   \
     }                                                                                              \
     memcpy(setup_words, config.coef, sizeof config.coef);                                          \
@@ -90,18 +86,11 @@ typedef struct {
     for (size_t knob = 0; knob < sizeof(knob_table) / sizeof(knob_table)[0]; knob++) {             \
       values[knob] = (knob_table)[knob].def;                                                       \
     }                                                                                              \
-    ifx_context context;                                                                           \
-    const ifx_context no_rate = {0};                                                               \
     ifx_##module##_setup_raw raw_values;                                                           \
     ifx_##module##_config config;                                                                  \
     raw(values, &raw_values);                                                                      \
-    if (ifx_context_init(&context, IFX_DEVICE_RATE) != 0) {                                        \
-      return -1;                                                                                   \
-    }                                                                                              \
-    return ifx_##module##_setup_config(NULL, &raw_values, &config) == -1 &&                        \
-                   ifx_##module##_setup_config(&no_rate, &raw_values, &config) == -1 &&            \
-                   ifx_##module##_setup_config(&context, NULL, &config) == -1 &&                   \
-                   ifx_##module##_setup_config(&context, &raw_values, NULL) == -1                  \
+    return ifx_##module##_setup_config(NULL, &config) == -1 &&                                     \
+                   ifx_##module##_setup_config(&raw_values, NULL) == -1                            \
                ? 0                                                                                 \
                : -1;                                                                               \
   }                                                                                                \
@@ -113,8 +102,7 @@ typedef struct {
     }                                                                                              \
     memset(self, IFX_EFFECT_POISON, sizeof *self);                                                 \
     memcpy(self->values, values, sizeof self->values);                                             \
-    if (ifx_context_init(&self->context, IFX_DEVICE_RATE) != 0 ||                                  \
-        fixture##_config(self->values, &self->context, &self->config) != 0) {                      \
+    if (fixture##_config(self->values, &self->config) != 0) {                                      \
       free(self);                                                                                  \
       return NULL;                                                                                 \
     }                                                                                              \
@@ -128,7 +116,7 @@ typedef struct {
     ifx_##module##_config config;                                                                  \
     self->values[knob] = (int32_t)value;                                                           \
     memset(&config, IFX_EFFECT_POISON, sizeof config);                                             \
-    if (fixture##_config(self->values, &self->context, &config) != 0) {                            \
+    if (fixture##_config(self->values, &config) != 0) {                                            \
       self->values[knob] = previous;                                                               \
       return -1;                                                                                   \
     }                                                                                              \

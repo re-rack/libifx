@@ -5,10 +5,11 @@
  * period (a signed 24-bit value in an int32_t; higher bits are ignored) and
  * writes a left and a right word. Every effect adds one block of latency:
  * output frame m is the device's output for input frame m - 32, and the first
- * 32 frames are the zero rest output. A host that runs at another rate
- * resamples to ifx_context_init's rate; setup takes the context and returns -1
- * for a NULL pointer or a context without a valid rate. A knob change is a new
- * config passed with the next process call; it applies from the next frame.
+ * 32 frames are the zero rest output. Effects run at the device's rate,
+ * IFX_DEVICE_RATE, with every time a fixed sample count: a host at another
+ * rate resamples to it. Setup returns -1 for a NULL pointer. A knob change is
+ * a new config passed with the next process call; it applies from the next
+ * frame.
  *
  * The split and float entry points take a mono input and two output buffers.
  * Either output may be the input buffer, as hosts process in place; no other
@@ -16,7 +17,6 @@
  * no overlap because its output is twice its input. Nothing allocates. The
  * library keeps no global state: different objects may be used from different
  * threads, but one object must not be written while another thread uses it.
- * Audio processing never reads the context.
  */
 #ifndef IFX_H
 #define IFX_H

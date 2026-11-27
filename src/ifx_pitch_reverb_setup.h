@@ -43,7 +43,7 @@ typedef struct {
   int hf_damp;            /* 0..99: RV HF DAMP */
 } ifx_pitch_reverb_setup_raw;
 
-int ifx_pitch_reverb_setup_config(const ifx_context *context, const ifx_pitch_reverb_setup_raw *raw,
+int ifx_pitch_reverb_setup_config(const ifx_pitch_reverb_setup_raw *raw,
                                   ifx_pitch_reverb_config *config);
 
 #endif /* IFX_PITCH_REVERB_SETUP_H */

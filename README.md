@@ -20,8 +20,9 @@ chorus, pitch and reverb networks.
 
 ## Using it in a plugin
 
-- Run the library at the device's own sample rate (about 39 kHz, a fixed constant) and resample
-  to and from the host's rate; the library is bit-exact only there.
+- Run the library at the device's own sample rate, `IFX_DEVICE_RATE` (39 kHz), and resample to and
+  from the host's rate. The library takes no rate: every time in the firmware is a fixed number of
+  samples, so audio fed at another rate plays as if the device's clock ran at that rate.
 - Feed it one mono input, as the device's single A/D does, and take its stereo output, one
   32-frame block later. `src/ifx.h` states the contract every effect follows.
 - Direct Post, the dry signal after the digital Hush, is part of each effect. Direct Pre is the

@@ -50,8 +50,7 @@ typedef struct {
   int hf_damp;            /* 0..99: RV HF DAMP */
 } ifx_chorus_reverb_setup_raw;
 
-int ifx_chorus_reverb_setup_config(const ifx_context *context,
-                                   const ifx_chorus_reverb_setup_raw *raw,
+int ifx_chorus_reverb_setup_config(const ifx_chorus_reverb_setup_raw *raw,
                                    ifx_chorus_reverb_config *config);
 
 #endif /* IFX_CHORUS_REVERB_SETUP_H */

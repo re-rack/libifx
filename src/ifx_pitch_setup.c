@@ -36,9 +36,8 @@ enum {
   DELAY_MAX = 210,
 };
 
-int ifx_pitch_setup_config(const ifx_context *context, const ifx_pitch_setup_raw *raw,
-                           ifx_pitch_config *config) {
-  if (raw == NULL || config == NULL || ifx_context_rate(context) == 0.0) {
+int ifx_pitch_setup_config(const ifx_pitch_setup_raw *raw, ifx_pitch_config *config) {
+  if (raw == NULL || config == NULL) {
     return -1;
   }
 

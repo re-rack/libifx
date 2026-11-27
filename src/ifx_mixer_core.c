@@ -2,9 +2,13 @@
 
 #include "ifx_dsp_math.h"
 
-static int32_t output(int64_t acc) {
-  const int32_t word = ifx_store24(ifx_addl(ifx_word_acc(IFX_MIXER_CORE_OFFSET), acc));
-  return ifx_store24(ifx_sub24(ifx_word_acc(word), IFX_MIXER_CORE_OFFSET));
+enum { OUT_MAX = IFX_W24_MAX - IFX_MIXER_CORE_OFFSET };
+
+/* The two ASLs scale the word sum by 8: the limiter's 2^23 grid is 2^20 on the
+ * raw sum, and the analog stage's offset leaves $799999 as the top word. */
+static int32_t output(int64_t sum) {
+  const int32_t word = (int32_t)(sum >> 20);
+  return word > OUT_MAX ? OUT_MAX : (word < IFX_W24_MIN ? IFX_W24_MIN : word);
 }
 
 void ifx_mixer_core_process(const int32_t wet_left[IFX_BLOCK_FRAMES],
@@ -16,14 +20,7 @@ void ifx_mixer_core_process(const int32_t wet_left[IFX_BLOCK_FRAMES],
   const int32_t dir_l = direct_on != 0 ? direct_left : 0;
   const int32_t dir_r = direct_on != 0 ? direct_right : 0;
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    int64_t a = ifx_mpy(wet_level, wet_left[i]);
-    a = ifx_mac(a, dir_l, hush[i]);
-    a = ifx_asl(ifx_asl(a));
-    out_left[i] = output(a);
-
-    a = ifx_mpy(hush[i], dir_r);
-    a = ifx_mac(a, wet_level, wet_right[i]);
-    a = ifx_asl(ifx_asl(a));
-    out_right[i] = output(a);
+    out_left[i] = output((int64_t)wet_level * wet_left[i] + (int64_t)dir_l * hush[i]);
+    out_right[i] = output((int64_t)hush[i] * dir_r + (int64_t)wet_level * wet_right[i]);
   }
 }

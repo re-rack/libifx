@@ -14,14 +14,15 @@ void ifx_front_core_process(ifx_front_core_state *state, const int32_t in[IFX_BL
   int64_t largest = 0;
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
     const int32_t x = in[i];
-    int64_t b = ifx_mpy(LP_COEF, state->lp);
-    b = ifx_macr(b, IN_COEF, x);
+    const int64_t sum = ifx_product(LP_COEF, state->lp) + ifx_product(IN_COEF, x);
+    const int64_t b = ifx_round24(sum);
     state->lp = ifx_store24(b);
-    b = ifx_sub24(b, x);
-    out[i] = ifx_store24(b);
-    if (ifx_abs56(b) > ifx_abs56(largest)) {
-      largest = b;
+    const int64_t y = b - ifx_word_acc(x);
+    out[i] = ifx_store24(y);
+    const int64_t magnitude = y < 0 ? -y : y;
+    if (magnitude > largest) {
+      largest = magnitude;
     }
   }
-  *level = ifx_store24(ifx_abs56(largest));
+  *level = ifx_store24(largest);
 }

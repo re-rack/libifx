@@ -100,6 +100,15 @@ static inline int64_t ifx_mpy(int32_t s1, int32_t s2) { return ifx_acc56(ifx_pro
 
 static inline int64_t ifx_mpyr(int32_t s1, int32_t s2) { return ifx_round24(ifx_product(s1, s2)); }
 
+/* MPYR with the $7FFFFF unity word: identity except words past half scale
+ * lose an LSB. */
+static inline int32_t ifx_mpyr_unity(int32_t word) {
+  if (word > 0x400000) {
+    return word - 1;
+  }
+  return word < -0x400000 ? word + 1 : word;
+}
+
 static inline int64_t ifx_mac(int64_t acc, int32_t s1, int32_t s2) {
   return ifx_acc56(acc + ifx_product(s1, s2));
 }

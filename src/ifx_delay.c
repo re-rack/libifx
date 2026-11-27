@@ -18,46 +18,42 @@ static uint32_t wrapped(int32_t index) {
 }
 
 static int32_t damped(int32_t in, int32_t *state_word, int32_t damp) {
-  int64_t a = ifx_word_acc(in);
-  a = ifx_mac(a, damp, *state_word);
-  a = ifx_macr(a, -in, damp);
-  *state_word = ifx_store24(a);
-  return *state_word;
+  const int32_t word =
+      ifx_store24(ifx_round24(ifx_word_acc(in) + ifx_product(damp, *state_word - in)));
+  *state_word = word;
+  return word;
+}
+
+/* A ring offset advanced by `step` words; the sum stays below twice the ring. */
+static uint32_t ring_step(uint32_t offset, unsigned step) {
+  offset += step;
+  return offset >= LINE_WORDS ? offset - LINE_WORDS : offset;
 }
 
 /* The taps go through `mpyr` with $7FFFFF, which takes an LSB off large words,
  * or with 0 while DELAY is off and MUTE TYPE mutes the output. */
-static void read_lines(const ifx_delay_state *state, const ifx_delay_config *config,
-                       int32_t left[IFX_BLOCK_FRAMES], int32_t right[IFX_BLOCK_FRAMES]) {
-  const int32_t flags = state->delay_flags;
-  int32_t gain = UNITY;
-  if ((flags & IFX_DELAY_FLAG_ON) == 0 && (flags & IFX_DELAY_FLAG_MUTE_POST) != 0) {
-    gain = 0;
-  }
-  const uint32_t base1 = wrapped((int32_t)state->write1 - config->coef[IFX_DELAY_COEF_TIME1]);
-  const uint32_t base2 = wrapped((int32_t)state->write2 - config->coef[IFX_DELAY_COEF_TIME2]);
-  for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    uint32_t address1;
-    uint32_t address2;
-    if ((flags & IFX_DELAY_FLAG_2TAP) != 0) {
-      address1 = LINE1_BASE + 2u * ((base1 + i / 2u) % LINE_WORDS) + (i & 1u);
-      address2 = LINE1_BASE + 2u * ((base2 + i / 2u) % LINE_WORDS) + (i & 1u);
-    } else {
-      address1 = LINE1_BASE + (base1 + i) % LINE_WORDS;
-      address2 = LINE2_BASE + (base2 + i) % LINE_WORDS;
-    }
-    left[i] = ifx_store24(ifx_mpyr(state->memory[address1 & 0xFFFFu], gain));
-    right[i] = ifx_store24(ifx_mpyr(state->memory[address2 & 0xFFFFu], gain));
-  }
+static int32_t read_tap(const int32_t *memory, uint32_t address, int32_t gain) {
+  return gain != 0 ? ifx_mpyr_unity(memory[address & 0xFFFFu]) : 0;
 }
 
-/* The write filter into one mono line. */
-static void write_line(int32_t *memory, uint32_t base, uint32_t *write, int32_t *state_word,
-                       const int32_t in[IFX_BLOCK_FRAMES], int32_t damp) {
+/* The write filter into both mono lines; their pointers advance together. */
+static void write_lines(int32_t *memory, uint32_t *write1, uint32_t *write2, int32_t *damp1,
+                        int32_t *damp2, const int32_t left[IFX_BLOCK_FRAMES],
+                        const int32_t right[IFX_BLOCK_FRAMES], int32_t damp) {
+  uint32_t w = *write1;
+  int32_t state1 = *damp1;
+  int32_t state2 = *damp2;
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    memory[(base + *write) & 0xFFFFu] = damped(in[i], state_word, damp);
-    *write = (*write + 1u) % LINE_WORDS;
+    memory[(LINE1_BASE + w) & 0xFFFFu] = damped(left[i], &state1, damp);
+    memory[(LINE2_BASE + w) & 0xFFFFu] = damped(right[i], &state2, damp);
+    if (++w == LINE_WORDS) {
+      w = 0;
+    }
   }
+  *write1 = w;
+  *write2 = w;
+  *damp1 = state1;
+  *damp2 = state2;
 }
 
 /* The write filter into the 2-Tap pair line, its pointer counting pairs. */
@@ -74,47 +70,21 @@ static void process_delay(ifx_delay_state *state, const ifx_delay_config *config
                           const int32_t input[IFX_BLOCK_FRAMES]) {
   const int32_t flags = state->delay_flags;
   const int32_t damp = config->coef[IFX_DELAY_COEF_DAMP];
-  int32_t old_left[IFX_BLOCK_FRAMES];
-  int32_t old_right[IFX_BLOCK_FRAMES];
   int32_t new_left[IFX_BLOCK_FRAMES];
   int32_t new_right[IFX_BLOCK_FRAMES];
-  read_lines(state, config, old_left, old_right);
 
+  int32_t tap_gain = UNITY;
+  if ((flags & IFX_DELAY_FLAG_ON) == 0 && (flags & IFX_DELAY_FLAG_MUTE_POST) != 0) {
+    tap_gain = 0;
+  }
+  const uint32_t base1 = wrapped((int32_t)state->write1 - config->coef[IFX_DELAY_COEF_TIME1]);
+  const uint32_t base2 = wrapped((int32_t)state->write2 - config->coef[IFX_DELAY_COEF_TIME2]);
   int32_t input_gain = UNITY;
   if ((flags & IFX_DELAY_FLAG_ON) == 0 && (flags & IFX_DELAY_FLAG_MUTE_PRE) != 0) {
     input_gain = 0;
   }
   const int32_t regen1 = state->regen.left;
   const int32_t regen2 = state->regen.right;
-  if ((flags & IFX_DELAY_FLAG_2TAP) != 0) {
-    for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-      int64_t a = ifx_mpy(input[i], input_gain);
-      a = ifx_mac(a, regen1, old_left[i]);
-      a = ifx_macr(a, regen2, old_right[i]);
-      new_left[i] = ifx_store24(a);
-    }
-    write_pairs(state->memory, &state->write1, &state->damp1, new_left, damp);
-    state->write2 = state->write1;
-  } else {
-    const int pingpong = (flags & IFX_DELAY_FLAG_PINGPONG) != 0;
-    for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-      int64_t a = ifx_mpy(input[i], input_gain);
-      int64_t b;
-      if (pingpong) {
-        a = ifx_macr(a, regen2, old_right[i]);
-        b = ifx_mpyr(regen1, old_left[i]);
-      } else {
-        b = ifx_mpy(input[i], input_gain);
-        a = ifx_macr(a, regen1, old_left[i]);
-        b = ifx_macr(b, regen2, old_right[i]);
-      }
-      new_left[i] = ifx_store24(a);
-      new_right[i] = ifx_store24(b);
-    }
-    write_line(state->memory, LINE1_BASE, &state->write1, &state->damp1, new_left, damp);
-    write_line(state->memory, LINE2_BASE, &state->write2, &state->damp2, new_right, damp);
-  }
-
   int32_t c1l = config->coef[IFX_DELAY_COEF_GAIN1_LEFT];
   int32_t c1r = config->coef[IFX_DELAY_COEF_GAIN1_RIGHT];
   int32_t c2l = config->coef[IFX_DELAY_COEF_GAIN2_LEFT];
@@ -125,13 +95,54 @@ static void process_delay(ifx_delay_state *state, const ifx_delay_config *config
     c2l = ifx_store24(ifx_mpyr(state->ducker.gain, c2l));
     c2r = ifx_store24(ifx_mpyr(state->ducker.gain, c2r));
   }
-  for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
-    int64_t a = ifx_mpy(old_left[i], c1l);
-    a = ifx_macr(a, c2l, old_right[i]);
-    state->wet_left[i] = ifx_store24(a);
-    a = ifx_mpy(old_left[i], c1r);
-    a = ifx_macr(a, c2r, old_right[i]);
-    state->wet_right[i] = ifx_store24(a);
+
+  if ((flags & IFX_DELAY_FLAG_2TAP) != 0) {
+    for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
+      const uint32_t offset1 = 2u * ring_step(base1, i / 2u) + (i & 1u);
+      const uint32_t offset2 = 2u * ring_step(base2, i / 2u) + (i & 1u);
+      const int32_t old_left = read_tap(state->memory, LINE1_BASE + offset1, tap_gain);
+      const int32_t old_right = read_tap(state->memory, LINE1_BASE + offset2, tap_gain);
+      const int64_t a = ifx_product(input[i], input_gain) + ifx_product(regen1, old_left) +
+                        ifx_product(regen2, old_right);
+      new_left[i] = ifx_store24(ifx_round24(a));
+      const int64_t wet_left = ifx_product(old_left, c1l) + ifx_product(c2l, old_right);
+      const int64_t wet_right = ifx_product(old_left, c1r) + ifx_product(c2r, old_right);
+      state->wet_left[i] = ifx_store24(ifx_round24(wet_left));
+      state->wet_right[i] = ifx_store24(ifx_round24(wet_right));
+    }
+    write_pairs(state->memory, &state->write1, &state->damp1, new_left, damp);
+    state->write2 = state->write1;
+  } else if ((flags & IFX_DELAY_FLAG_PINGPONG) != 0) {
+    for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
+      const int32_t old_left = read_tap(state->memory, LINE1_BASE + ring_step(base1, i), tap_gain);
+      const int32_t old_right = read_tap(state->memory, LINE2_BASE + ring_step(base2, i), tap_gain);
+      const int64_t dry = ifx_product(input[i], input_gain);
+      const int64_t a = dry + ifx_product(regen2, old_right);
+      new_left[i] = ifx_store24(ifx_round24(a));
+      new_right[i] = ifx_store24(ifx_round24(ifx_product(regen1, old_left)));
+      const int64_t wet_left = ifx_product(old_left, c1l) + ifx_product(c2l, old_right);
+      const int64_t wet_right = ifx_product(old_left, c1r) + ifx_product(c2r, old_right);
+      state->wet_left[i] = ifx_store24(ifx_round24(wet_left));
+      state->wet_right[i] = ifx_store24(ifx_round24(wet_right));
+    }
+    write_lines(state->memory, &state->write1, &state->write2, &state->damp1, &state->damp2,
+                new_left, new_right, damp);
+  } else {
+    for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
+      const int32_t old_left = read_tap(state->memory, LINE1_BASE + ring_step(base1, i), tap_gain);
+      const int32_t old_right = read_tap(state->memory, LINE2_BASE + ring_step(base2, i), tap_gain);
+      const int64_t dry = ifx_product(input[i], input_gain);
+      const int64_t a = dry + ifx_product(regen1, old_left);
+      const int64_t b = dry + ifx_product(regen2, old_right);
+      new_left[i] = ifx_store24(ifx_round24(a));
+      new_right[i] = ifx_store24(ifx_round24(b));
+      const int64_t wet_left = ifx_product(old_left, c1l) + ifx_product(c2l, old_right);
+      const int64_t wet_right = ifx_product(old_left, c1r) + ifx_product(c2r, old_right);
+      state->wet_left[i] = ifx_store24(ifx_round24(wet_left));
+      state->wet_right[i] = ifx_store24(ifx_round24(wet_right));
+    }
+    write_lines(state->memory, &state->write1, &state->write2, &state->damp1, &state->damp2,
+                new_left, new_right, damp);
   }
 }
 

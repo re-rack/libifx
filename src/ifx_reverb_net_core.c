@@ -59,7 +59,7 @@ void ifx_reverb_net_core_taps(const int32_t *table, const int32_t memory[0x10000
     base[tap] = next & ~bufmask;
     off[tap] = next & bufmask;
   }
-  block[0] = ifx_round24_store(ifx_product(gain, sum));
+  block[0] = ifx_store24(ifx_round24(ifx_product(gain, sum)));
   for (unsigned i = 1u; i < IFX_BLOCK_FRAMES; i++) {
     sum = 0;
     for (unsigned tap = 0; tap < taps; tap++) {
@@ -68,7 +68,7 @@ void ifx_reverb_net_core_taps(const int32_t *table, const int32_t memory[0x10000
         off[tap] = 0;
       }
     }
-    block[i] = ifx_round24_store(ifx_product(gain, sum));
+    block[i] = ifx_store24(ifx_round24(ifx_product(gain, sum)));
   }
 }
 
@@ -123,16 +123,16 @@ static void input_mix(const int32_t memory[0x10000], const int32_t input[IFX_BLO
     }
   }
   const uint32_t mask = IFX_REGEN_CORE_LINE_M;
-  uint32_t base_l = delay_l & ~mask;
-  uint32_t base_r = delay_r & ~mask;
+  const uint32_t base_l = delay_l & ~mask;
+  const uint32_t base_r = delay_r & ~mask;
   uint32_t off_l = delay_l & mask;
   uint32_t off_r = delay_r & mask;
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
     const int32_t x0 = input[i];
     const int64_t a = ifx_product(x1, x0) + ifx_product(y0, memory[base_l + off_l]);
     const int64_t b = ifx_product(x0, y1) + ifx_product(y0, memory[base_r + off_r]);
-    work_l[i] = ifx_round24_store(a);
-    work_r[i] = ifx_round24_store(b);
+    work_l[i] = ifx_store24(ifx_round24(a));
+    work_r[i] = ifx_store24(ifx_round24(b));
     off_l = (off_l + 1u) & mask;
     off_r = (off_r + 1u) & mask;
   }
@@ -169,21 +169,21 @@ void ifx_reverb_net_core_mix(int32_t memory[0x10000], int32_t bus[2u * IFX_BLOCK
     reverb_level = ifx_store24(ifx_mpyr(reverb_level, ducker_gain));
   }
   const uint32_t mask = IFX_REGEN_CORE_LINE_M;
-  uint32_t base_l = *read_l & ~mask;
-  uint32_t base_r = *read_r & ~mask;
+  const uint32_t base_l = *read_l & ~mask;
+  const uint32_t base_r = *read_r & ~mask;
   uint32_t off_l = *read_l & mask;
   uint32_t off_r = *read_r & mask;
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
     int64_t a = ifx_product(bus_level, bus[i]) + ifx_product(delay_level, memory[base_l + off_l]) +
                 ifx_product(reverb_level, reverb_l[i]);
-    wet_l[i] = ifx_round24_store(a);
+    wet_l[i] = ifx_store24(ifx_round24(a));
     bus[i] = 0;
     memory[base_l + off_l] = 0;
     off_l = (off_l + 1u) & mask;
 
     a = ifx_product(bus_level, bus[IFX_BLOCK_FRAMES + i]) +
         ifx_product(delay_level, memory[base_r + off_r]) + ifx_product(reverb_level, reverb_r[i]);
-    wet_r[i] = ifx_round24_store(a);
+    wet_r[i] = ifx_store24(ifx_round24(a));
     bus[IFX_BLOCK_FRAMES + i] = 0;
     memory[base_r + off_r] = 0;
     off_r = (off_r + 1u) & mask;

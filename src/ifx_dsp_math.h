@@ -32,7 +32,8 @@ static inline uint32_t ifx_agu_mask(uint32_t m) {
   return mask;
 }
 
-/* ifx_agu_step for a step shorter than the window, with its mask precomputed. */
+/* ifx_agu_step for a nonzero step shorter than the window, with the window's
+ * mask from ifx_agu_mask. */
 static inline uint32_t ifx_agu_step_masked(uint32_t address, int32_t delta, uint32_t m,
                                            uint32_t bufmask) {
   address &= 0xFFFFu;
@@ -54,23 +55,16 @@ static inline uint32_t ifx_agu_step(uint32_t address, int32_t delta, uint32_t m)
   const uint32_t modulo = m + 1u;
   const uint32_t bufmask = ifx_agu_mask(m);
   const uint32_t magnitude = delta < 0 ? 0u - (uint32_t)delta : (uint32_t)delta;
-  uint32_t reg = address + (uint32_t)delta;
   /* A step shorter than the window wraps at most once. */
   if (delta != 0 && magnitude <= bufmask) {
     if (modulo == bufmask + 1u) {
-      return ((address & ~bufmask) | (reg & bufmask)) & 0xFFFFu;
+      return ((address & ~bufmask) | ((address + (uint32_t)delta) & bufmask)) & 0xFFFFu;
     }
-    const int32_t offset = (int32_t)(address & bufmask) + delta;
-    if (offset > (int32_t)m) {
-      reg -= modulo;
-    } else if (offset < 0) {
-      reg += modulo;
-    }
-    return reg & 0xFFFFu;
+    return ifx_agu_step_masked(address, delta, m, bufmask);
   }
   const uint32_t low = (address | 0x10000u) & ~bufmask;
   const uint32_t high = low + modulo - 1u;
-  reg = (address | 0x10000u) + (uint32_t)delta;
+  uint32_t reg = (address | 0x10000u) + (uint32_t)delta;
   if ((magnitude & bufmask) != 0u) {
     if (reg > high) {
       reg -= modulo;
@@ -135,19 +129,6 @@ static inline int64_t ifx_mac(int64_t acc, int32_t s1, int32_t s2) {
 
 static inline int64_t ifx_macr(int64_t acc, int32_t s1, int32_t s2) {
   return ifx_round24(ifx_acc56(acc + ifx_product(s1, s2)));
-}
-
-/* RND followed by a move out, for a 56-bit accumulator value. */
-static inline int32_t ifx_round24_store(int64_t value) {
-  int64_t biased = value + 0x800000LL;
-  if ((biased & 0xFFFFFFLL) == 0) {
-    biased &= ~0x1000000LL;
-  }
-  const int64_t word = biased >> 24;
-  if (word > IFX_W24_MAX) {
-    return IFX_W24_MAX;
-  }
-  return word < IFX_W24_MIN ? IFX_W24_MIN : (int32_t)word;
 }
 
 /* MACR into a 24-bit word: the word moves the rounded product's A1, and

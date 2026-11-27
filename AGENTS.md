@@ -39,7 +39,7 @@ The scripts find both by SHA-256, under any name, in the project root or `revers
 | `reverse_engineering/EFFECTS.md` | Verified firmware map and reusable findings for the native library |
 | `Makefile` | Every build, check and tool target; all output goes to `build/` or the workspace's untracked paths |
 | `README.md` | The project's front page |
-| `src/` | Library code only: `ifx.h`, the base and context, the converter, the process macro (`ifx_process.h`), the DSP56000 arithmetic (`ifx_dsp_math.h`), the shared tables, and the effects |
+| `src/` | Library code only: `ifx.h`, the base and context, the converter, the process macro (`ifx_process.h`), the DSP56000 arithmetic (`ifx_dsp_math.h`), the shared tables, the shared and family cores and designs, and the effects |
 | `tests/` | The recorder, the checker, the signal generator and the fixtures (`tests/README.md`) |
 
 ## Native effect progress
@@ -55,7 +55,7 @@ An effect is **Complete** when it has a native setup path, an audio kernel, all 
 | Hush; Chorus; Delay; Reverb (23–24) | `ifx_chorus_reverb` | Mixer, Hush, 4 chorus/delay voices, Ducker, Reverb | Complete |
 | Hush; Pitch Shift; Delay; Reverb (34–35) | `ifx_pitch_reverb` | Mixer, Hush, 2 pitch voices, Delay 3, Ducker, Reverb | Complete |
 
-Work order: workspace and docs (done), firmware map (structure done; the arithmetic is settled in the harness), two-CPU harness (done), library foundation (done), then the configurations simplest first, with Hush and the Mixer as the first shared pieces. No de-popped variants: each effect clicks where the device does.
+No de-popped variants: each effect clicks where the device does.
 
 MIDI, preset storage, title edit, controller and program mapping, bypass and the panel are supporting firmware areas, not effects.
 
@@ -65,7 +65,7 @@ Agreed with the user; change them only with the user.
 
 - **Name.** `libifx`, prefix `ifx_` / `IFX_`, GPL-3.0 like libgmajor2.
 - **Unit of an effect.** One effect per configuration: each configuration runs one DSP program whose sections share regeneration loops, the ducker and the mixer. Reverb type and delay type are knobs. Code several programs share becomes a family core (`ifx_<family>_core`) and shared setup math a family design (`ifx_<family>_design`).
-- **Sample rate.** The firmware has no rate math: every time is a fixed sample count and the SSI runs on external clocks. The library is bit-exact at the device's own rate, and a host at another rate resamples to it. The rate is an argument of the library's context init, 39,000 Hz by default (`IFX_DEVICE_RATE`), the rate the firmware's millisecond conversions assume; the exact rate is the A/D's CLKIN/128 and not yet known (`reverse_engineering/EFFECTS.md`, "Sample rate"). The rate tells the host what to resample to; no arithmetic depends on it.
+- **Sample rate.** The firmware has no rate math: every time is a fixed sample count and the SSI runs on external clocks. The library is bit-exact at the device's own rate, and a host at another rate resamples to it. The rate is an argument of the library's context init, 39,000 Hz by default (`IFX_DEVICE_RATE`), the rate the firmware's millisecond conversions assume; the exact rate is the A/D's CLKIN/128, which nothing on the board settles, while the release tables assume 39,062.5 Hz (`reverse_engineering/EFFECTS.md`, "Sample rate"). The rate tells the host what to resample to; no arithmetic depends on it.
 - **Channels and the dry path.** The DSP sees one mono input, the analog sum of the two input jacks, and writes stereo. Each effect is the DSP: mono in, stereo out, Direct Post included, bit-exact. How the analog front end forms the mono input is documented, not ported. Direct Pre, the analog dry path that never enters the DSP, is not ported either, and the library has no helper for it: with DIRECT HUSH at PRE an effect outputs the wet signal only, and a host adds its own dry signal.
 - **Harness cores.** DSP: Hatari's DSP56001 interpreter (`src/falcon/dsp_cpu.c`, `dsp_core.c`, `dsp_disasm.c`; GPL-2.0-or-later, <https://github.com/hatari/hatari>, upstream commit `36a8acf`), vendored under `reverse_engineering/harness/hatari/` with the board's memory and peripheral glue in place of the Falcon's. It implements the DSP56000 behaviour the firmware relies on that the xemu DSP56300 core cannot (multiple wrap-around modulo jumps, 16-bit AGU, the 15-entry stack, the 56001 SR and vectors), and its disassembler is the workspace's DSP disassembler. MCU: `mcs51_emulator` (MIT, C11, <https://github.com/martinribelotta/mcs51_emulator>, upstream commit `8789c25`) in its 8052 model (the board's 80C32 has 256 bytes of IRAM, which the parameters use), vendored under `reverse_engineering/harness/mcs51/` with its licence, patched only to build under the project's warning set, and cross-checked once against ucsim `s51` traces of the firmware's boot.
 - **Ghidra layout.** One program per DSP runtime (boot words `P:$0000..$009F`, one configuration image at `P:$00A0`, the shared image at `P:$0400`), a boot-only program, and the MCU program. Shared code is duplicated across the runtime programs: annotate it in one of them.
@@ -81,7 +81,7 @@ Agreed with the user; change them only with the user.
 
 ## Library API
 
-Every effect has the same interface, the instance first and the knob struct by const pointer; `src/ifx.h` will state the contract once and include every effect inside `extern "C"`:
+Every effect has the same interface, the instance first and the knob struct by const pointer; `src/ifx.h` states the contract once and includes every effect inside `extern "C"`:
 
 ```c
 int  ifx_context_init(ifx_context *context, double rate);    /* the device rate, IFX_DEVICE_RATE by default */
@@ -112,7 +112,7 @@ Samples are Q23, a signed 24-bit value in an `int32_t`. `src/ifx_convert.{h,c}` 
 libgmajor2's `AGENTS.md` "Code conventions" apply with `gm2` renamed `ifx`; the points that differ or matter most:
 
 - An effect X is four files: `ifx_X.h` (config, state, process entry points), `ifx_X.c`, `ifx_X_setup.h` (the raw struct and `ifx_X_setup_config`) and `ifx_X_setup.c`. A shared audio routine is `ifx_<family>_core.{h,c}`, shared setup math `ifx_<family>_design.{h,c}`.
-- Everything a header declares starts with the header's module name. Inside a `.c` file, static functions drop the `ifx_` prefix, constants are enum constants without `IFX_`, constant data is `static const ... k_<name>`, and a file that clamps raw knobs names its windows `<FIELD>_MIN` / `<FIELD>_MAX` in one enum.
+- Everything a header declares starts with the header's module name. Inside a `.c` file, static functions drop the `ifx_` prefix, constants are enum constants without `IFX_`, constant data is `static const ... k_<name>`, and a file that clamps raw knobs names its windows `<FIELD>_MIN` / `<FIELD>_MAX` (the MCU's exclusive maximum) in one enum and clamps through `ifx_window`.
 - A config holds `int32_t coef[]`: the words the firmware stages, in the firmware's order, as sign-extended 24-bit values, with an enum naming the positions the code uses. A state holds the kernel's own words. Nothing is kept because the firmware keeps it: a scratch word is a local, a constant word is a constant, a word no output depends on is not computed. Only audio input is masked on reading.
 - DSP56000 arithmetic, firmware tables, LFOs, parameter smoothing and conversions live in shared helpers, never in an effect. The 8051's integer math and tables become shared helpers too, word for word.
 - Raw fields are named after the knob in lower case with underscores; their comment gives the range and meaning, never a default.
@@ -141,10 +141,10 @@ The emulator only records; every check runs offline.
 - A fixture holds: setup words for each knob on its own (every position for 32 or fewer, otherwise 32 evenly spread positions plus the default); four multi-knob presets (every knob at 33 %, 66 %, minimum, maximum, each built one knob at a time) plus the configuration's factory presets; one long audio run on the generated input (libgmajor2's `gm2_signal.c`), moving each knob through min, 33 %, 66 %, max and default, then from an active setting the effect names per knob (one where every section acts: on, audible, short delays, regen near the rails), once for every value of its mode knobs (delay type, reverb type), sweeping every knob and giving each ten fast turns 64 frames apart that land while the previous glide still moves, with segment lengths offset over the processing block, and delay-time knobs holding their maximum until the buffer wraps. Every output sample is stored.
 - **The recorder follows the device.** A knob turn is the MCU's own edit routine (the one PARAMETER ADJUST and MIDI CC use) followed by the DSP's handling of what the MCU sends. An adapter never copies staged words onto live ones and never takes a value from the library.
 - **The checker** replays every run through all four entry points with random buffer sizes and junk in the unused upper input bytes, checks that setup at min-1 and max+1 equals setup at min and max, and fills configs with junk before setup. A tables fixture holds every lookup table as the EPROM holds it. Internal state is not compared.
-- Make targets as in libgmajor2: `build`, `install`, `check-install`, `check`, `check-fixture`, `record-fixture`, `record-all-fixtures`, `coverage`, `benchmark-all-fx`, `benchmark-fx`, `check-convert`, `format`, `static-check`, `sanitize`, `clean`, `ghidra-prepare`, `ghidra-clean`. Every C file compiles with one warning set (libgmajor2's `STRICT`), warnings are errors, and all output goes to `build/`.
+- Make targets as in libgmajor2: `build`, `install`, `uninstall`, `check-install`, `check`, `check-fixture`, `check-tables`, `check-host`, `record-fixture`, `record-all-fixtures`, `coverage`, `benchmark-all-fx`, `benchmark-fx`, `check-convert`, `format`, `static-check`, `sanitize`, `clean`, `ghidra-prepare`, `ghidra-clean`, plus the harness's `harness`, `tools` and `dsp-core-check`. Every C file compiles with one warning set (libgmajor2's `STRICT`), warnings are errors, and all output goes to `build/`.
 - After adding an effect, run `coverage` and confirm by mutation that the fixture covers every path: a deliberately broken constant, rounding or branch in each new source must make `check` fail. Re-record only when an effect's description, the input or the fixture format changes, never because `src/` changed.
 
-**Before every commit**, `make format`, `make static-check`, `make sanitize`, `make check` and `make check-install` must all pass with no findings (each target that exists so far).
+**Before every commit**, `make format`, `make static-check`, `make sanitize`, `make check` and `make check-install` must all pass with no findings.
 
 ## Workspace invariants
 

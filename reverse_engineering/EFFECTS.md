@@ -1,10 +1,9 @@
 # Firmware map and reimplementation notes
 
 The current technical reference for the native library. It records verified findings only; use the
-disassembly (`reverse_engineering/asm/`) and, once it exists, the harness for details. EPROM offsets
-are `0xNNNN`, MCU addresses `C:NNNN` (code), `X:NNNN` (XDATA) and `IRAM xx`, DSP addresses
-`P:$NNNN`, `X:$NNNN` and `Y:$NNNN` (DSP56001 word addresses). "Open" marks what static reading
-has not settled; the harness settles it.
+disassembly (`reverse_engineering/asm/`) and the harness for details. EPROM offsets are `0xNNNN`,
+MCU addresses `C:NNNN` (code), `X:NNNN` (XDATA) and `IRAM xx`, DSP addresses `P:$NNNN`, `X:$NNNN`
+and `Y:$NNNN` (DSP56001 word addresses).
 
 ## Current status
 
@@ -443,8 +442,3 @@ CLKIN, but the release tables are computed for exactly that rate: an entry is `1
 
 In the harness a pass of configuration 4 takes about 12,700 DSP clock cycles and configuration 1's
 initialising pass 16,100, so a 32-frame block needs a DSP clock of about 20 MHz or more.
-
-## Open
-
-- The scale conventions: configuration tables hold words such as `$008000` that read like Q1.16,
-  next to Q1.23 constants elsewhere.

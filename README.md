@@ -1,12 +1,13 @@
 # Intellifex LTD effects
 
-A C17 library, `libifx`, that is to re-create the six effect configurations of the Rocktron
-Intellifex LTD (1995) for use as audio plugins, bit-exact against the original firmware: for the
-same input and knob settings, the same output samples as the hardware's DSP.
+A C17 library, `libifx`, that re-creates the six effect configurations of the Rocktron Intellifex
+LTD (1995) for use as audio plugins, bit-exact against the original firmware: for the same input
+and knob settings, the same output samples as the hardware's DSP.
 
-**Status: six of six effects.** The firmware workspace, the Ghidra project, a two-CPU harness that
-runs the original firmware, the library's foundation and test framework, and all six effects with
-the shared Hush, mixer, ducker, regen limiter, chorus, pitch and reverb network cores are in place.
+**Status: complete.** All six configurations are ported and checked against fixtures recorded from
+the original firmware, which a two-CPU harness runs. The effects share the DSP's front, Hush,
+mixer, ducker and memory wipe, and their families share the regenerating delay lines and the
+chorus, pitch and reverb networks.
 
 | Configuration | Effect | Status |
 |---|---|---|
@@ -17,11 +18,12 @@ the shared Hush, mixer, ducker, regen limiter, chorus, pitch and reverb network 
 | Hush; Chorus; Delay; Reverb | `ifx_chorus_reverb` | complete |
 | Hush; Pitch Shift; Delay; Reverb | `ifx_pitch_reverb` | complete |
 
-## What a plugin will do
+## Using it in a plugin
 
 - Run the library at the device's own sample rate (about 39 kHz, a fixed constant) and resample
   to and from the host's rate; the library is bit-exact only there.
-- Feed it one mono input, as the device's single A/D does, and take its stereo output.
+- Feed it one mono input, as the device's single A/D does, and take its stereo output, one
+  32-frame block later. `src/ifx.h` states the contract every effect follows.
 - Direct Post, the dry signal after the digital Hush, is part of each effect. Direct Pre is the
   device's analog dry path and is not ported: with DIRECT HUSH at PRE the effect outputs only the
   wet signal, and the host mixes in its own dry signal.
@@ -39,6 +41,7 @@ The repository holds neither the firmware nor the manual.
 | `make build` | `build/default/libifx.a` (the default) |
 | `make install`, `make uninstall` | the library, its headers under `include/ifx/` and `ifx.pc`, under `PREFIX` |
 | `make check` | every fixture and the host checks, offline ([`tests/README.md`](tests/README.md)) |
+| `make check-fixture FIXTURE=<name>`, `make check-tables`, `make check-host` | one part of `make check` |
 | `make check-install` | build a C and a C++ host against a staged install |
 | `make check-convert` | the float converter on every float, every SIMD path |
 | `make record-fixture FIXTURE=<name>`, `make record-all-fixtures` | record fixtures from the firmware harness (needs the EPROM) |
@@ -46,7 +49,7 @@ The repository holds neither the firmware nor the manual.
 | `make benchmark-all-fx`, `make benchmark-fx FX=<name>` | processing time per frame |
 | `make ghidra-prepare` | verify the EPROM, split it, disassemble both processors and build the Ghidra project |
 | `make ghidra-clean` | remove what `ghidra-prepare` generates, keeping the Ghidra project |
-| `make harness`, `make tools` | the firmware harness and its programs (`reverse_engineering/README.md`) |
+| `make harness`, `make tools`, `make dsp-core-check` | the firmware harness, its programs and the DSP core's memory-map check (`reverse_engineering/README.md`) |
 | `make format` | apply clang-format |
 | `make static-check` | clang-format check, cppcheck, gcc and clang warnings and analyzers, ruff |
 | `make clean` | remove `build/` |
@@ -58,7 +61,7 @@ under any name; the scripts find them by SHA-256 ([`reverse_engineering/README.m
 
 - `make`, `gcc` and `clang` (C17), `clang-format`, `cppcheck`
 - `check-convert`: `aarch64-linux-gnu-gcc`, `riscv64-linux-gnu-gcc`, `qemu-aarch64`, `qemu-riscv64`; `coverage`: `gcov`
-- `python`, `ruff`: the workspace scripts
+- `python3`, `ruff`: the workspace scripts
 - Ghidra 12.2 with Ghidra-Rare's DSP56000 module ([aleph-void/Ghidra-Rare](https://github.com/aleph-void/Ghidra-Rare)) and PyGhidra
 
 ## Layout

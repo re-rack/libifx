@@ -21,6 +21,14 @@
 #define IFX_EMU_PRESET_COUNT 160u
 #define IFX_EMU_PARAMETER_COUNT 108u
 
+/* EPROM offsets of the tables the panel reads, as reverse_engineering/EFFECTS.md
+ * records them: the per-parameter maximum table, the per-configuration parameter
+ * lists (64 bytes each), and the word an idle mixer settles on. */
+#define IFX_EMU_MAX_TABLE 0x12C8u
+#define IFX_EMU_PARAMETER_LISTS 0x320Fu
+#define IFX_EMU_PARAMETER_LIST_STRIDE 64u
+#define IFX_EMU_REST_WORD 0x066666
+
 typedef struct ifx_emu ifx_emu;
 
 /* One host message as the DSP saw it: the words the MCU left in the ring, and
@@ -31,7 +39,6 @@ typedef struct {
   uint64_t pass_applied;
   unsigned index;
   unsigned value;
-  unsigned words;
 } ifx_emu_message;
 
 typedef struct {
@@ -54,7 +61,9 @@ ifx_mcu_board *ifx_emu_mcu(const ifx_emu *emu);
 ifx_dsp_board *ifx_emu_dsp(const ifx_emu *emu);
 const char *ifx_emu_eprom_path(const ifx_emu *emu);
 
-bool ifx_emu_ready(const ifx_emu *emu);
+/* The EPROM image the board booted from, IFX_EMU_EPROM_SIZE bytes. */
+const uint8_t *ifx_emu_eprom(const ifx_emu *emu);
+
 uint64_t ifx_emu_frames(const ifx_emu *emu);
 uint64_t ifx_emu_clocks(const ifx_emu *emu);
 
@@ -96,8 +105,15 @@ void ifx_emu_button(ifx_emu *emu, ifx_mcu_board_button button, bool pressed);
  * Both return false when the firmware refuses, and leave the panel where the
  * search stopped. */
 bool ifx_emu_recall(ifx_emu *emu, unsigned preset);
-bool ifx_emu_select(ifx_emu *emu, unsigned index);
 bool ifx_emu_set_parameter(ifx_emu *emu, unsigned index, unsigned value);
+
+/* Factory preset `preset` (81..160): its configuration (0..5) in `config` and
+ * its values indexed by parameter number, 0 for parameters the configuration
+ * does not list. A record whose configuration byte is 6 or more reads as
+ * configuration 0, as the firmware's recall does. False when the preset is out
+ * of range. */
+bool ifx_emu_factory_preset(const ifx_emu *emu, unsigned preset, unsigned *config,
+                            uint8_t values[IFX_EMU_PARAMETER_COUNT]);
 
 void ifx_emu_display(const ifx_emu *emu, char *text);
 unsigned ifx_emu_preset(const ifx_emu *emu);  /* 1..160 */

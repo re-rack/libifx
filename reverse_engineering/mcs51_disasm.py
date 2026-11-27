@@ -328,8 +328,6 @@ TABLE = (
     ("mov", ("Rn", "A")),
 )
 
-UNDEFINED = f"{0xA5:02X}h"
-
 CALLS = frozenset({"lcall", "acall"})
 
 BRANCHES = (

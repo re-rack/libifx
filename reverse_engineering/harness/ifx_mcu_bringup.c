@@ -27,6 +27,7 @@
  *   load:c:i=v   make a user preset for configuration c (others at the factory
  *                values), recall it, and leave it on the panel
  *   settle       feed silence until the configuration is at rest
+ *   verify:echo  check the delay's echo spacing and a knob turn's messages
  *   verify:audio run the pour-in check on each factory configuration
  *   verify:timing check latency, message timing and load/settle on all six
  *   verify:factory dial the panel's FACTORY RESTORE and compare the battery it
@@ -66,15 +67,9 @@ static size_t frames_for_ms(unsigned ms) {
 
 static void run_ms(unsigned ms) { ifx_emu_run_ms(g_emu, ms); }
 
-static void press(ifx_mcu_board_button button) {
-  ifx_emu_button(g_emu, button, true);
-  run_ms(2);
-}
+static void press(ifx_mcu_board_button button) { ifx_emu_button(g_emu, button, true); }
 
-static void release(ifx_mcu_board_button button) {
-  ifx_emu_button(g_emu, button, false);
-  run_ms(2);
-}
+static void release(ifx_mcu_board_button button) { ifx_emu_button(g_emu, button, false); }
 
 typedef struct {
   int32_t min;
@@ -249,8 +244,8 @@ static void messages(void) {
   const ifx_emu_message *log = ifx_emu_messages(g_emu, &count);
   printf("  %u parameter messages\n", count);
   for (unsigned i = 0; i < count; ++i) {
-    printf("  frame %llu -> %llu words=%u\n", (unsigned long long)log[i].frame_in,
-           (unsigned long long)log[i].frame_applied, log[i].words);
+    printf("  frame %llu -> %llu\n", (unsigned long long)log[i].frame_in,
+           (unsigned long long)log[i].frame_applied);
   }
 }
 
@@ -290,7 +285,7 @@ static const struct {
 static bool audio_chunk(const int32_t *samples, size_t frames, int32_t *left, int32_t *right,
                         size_t *offset) {
   if (!feed(g_emu, samples, frames, true, left, right)) {
-    printf("  the feed stopped at frame %llu\n", (unsigned long long)*offset);
+    fprintf(stderr, "  the feed stopped at frame %llu\n", (unsigned long long)*offset);
     return false;
   }
   *offset += frames;
@@ -305,11 +300,11 @@ static bool power_cycle(unsigned preset) {
   ifx_emu_destroy(g_emu);
   g_emu = ifx_emu_create(g_root);
   if (g_emu == NULL) {
-    printf("cannot recreate the emulator\n");
+    fprintf(stderr, "cannot recreate the emulator\n");
     return false;
   }
   if (!ifx_emu_recall(g_emu, preset)) {
-    printf("preset %u: recall refused\n", preset);
+    fprintf(stderr, "preset %u: recall refused\n", preset);
     return false;
   }
   ifx_emu_run_ms(g_emu, 500);
@@ -331,7 +326,7 @@ static bool verify_one(unsigned preset, unsigned config) {
   printf("preset %u \"%s\": config %u (expected %u) page=%02x\n", preset, text,
          ifx_emu_config(g_emu), config, ifx_emu_page(g_emu));
   if (ifx_emu_config(g_emu) != config) {
-    printf("  wrong configuration\n");
+    fprintf(stderr, "  wrong configuration\n");
     return false;
   }
 
@@ -344,7 +339,7 @@ static bool verify_one(unsigned preset, unsigned config) {
   print_channel("silence L", &silence_left);
   print_channel("silence R", &silence_right);
   if (silence_left.peak > IFX_SILENCE_LIMIT || silence_right.peak > IFX_SILENCE_LIMIT) {
-    printf("  silence is not quiet\n");
+    fprintf(stderr, "  silence is not quiet\n");
     return false;
   }
 
@@ -386,7 +381,7 @@ static bool verify_one(unsigned preset, unsigned config) {
     /* 2400 chunks of 25 ms: a minute a pass. */
     for (unsigned run_index = 0; run_index < 2400u; ++run_index) {
       if (!feed(g_emu, tone, tone_frames, true, tone_left, tone_right)) {
-        printf("  the tone feed stopped at chunk %u\n", run_index);
+        fprintf(stderr, "  the tone feed stopped at chunk %u\n", run_index);
         ok = false;
         break;
       }
@@ -425,7 +420,7 @@ static bool verify_one(unsigned preset, unsigned config) {
     if (pass == 0u) {
       first_run = checksum;
     } else if (first_run != checksum) {
-      printf("  the two runs differ\n");
+      fprintf(stderr, "  the two runs differ\n");
       ok = false;
     }
   }
@@ -457,7 +452,7 @@ static bool verify_echo(void) {
     size_t spacing = IFX_ECHO_SAMPLES_PER_UNIT * value;
     if (!ifx_emu_recall(g_emu, IFX_ECHO_PRESET) ||
         !ifx_emu_set_parameter(g_emu, IFX_ECHO_PARAMETER, value)) {
-      printf("echo %u: the panel refused\n", value);
+      fprintf(stderr, "echo %u: the panel refused\n", value);
       ok = false;
       break;
     }
@@ -474,14 +469,15 @@ static bool verify_echo(void) {
     int32_t values[12];
     size_t count = collect_peaks(left, window, mean, positions, values, 12u);
     if (count < 2u) {
-      printf("echo %u: %zu echoes in %zu frames, expected at least 2\n", value, count, window);
+      fprintf(stderr, "echo %u: %zu echoes in %zu frames, expected at least 2\n", value, count,
+              window);
       ok = false;
       break;
     }
     for (size_t p = 1; p < count; ++p) {
       if (positions[p] - positions[p - 1u] != spacing) {
-        printf("echo %u: echoes %zu and %zu are %zu frames apart, expected %zu\n", value, p - 1u, p,
-               positions[p] - positions[p - 1u], spacing);
+        fprintf(stderr, "echo %u: echoes %zu and %zu are %zu frames apart, expected %zu\n", value,
+                p - 1u, p, positions[p] - positions[p - 1u], spacing);
         ok = false;
         break;
       }
@@ -490,7 +486,7 @@ static bool verify_echo(void) {
     if (latency == 0u) {
       latency = first;
     } else if (latency != first) {
-      printf("echo %u: latency %zu frames, was %zu\n", value, first, latency);
+      fprintf(stderr, "echo %u: latency %zu frames, was %zu\n", value, first, latency);
       ok = false;
       break;
     }
@@ -509,7 +505,7 @@ static bool verify_echo(void) {
   (void)ifx_emu_messages(g_emu, &count);
   printf("  three detents took %u to %u and sent %u messages\n", value, moved, count);
   if (ok && (moved != value + 3u || count == 0u)) {
-    printf("  the turn did not reach the panel and the DSP\n");
+    fprintf(stderr, "  the turn did not reach the panel and the DSP\n");
     ok = false;
   }
   free(impulse);
@@ -522,7 +518,7 @@ static bool verify_audio(void) {
   bool ok = true;
   for (unsigned i = 0; i < IFX_AUDIO_CONFIGS; ++i) {
     if (!verify_one(k_audio_configs[i].preset, k_audio_configs[i].config)) {
-      printf("configuration %u FAILED\n", k_audio_configs[i].config);
+      fprintf(stderr, "configuration %u FAILED\n", k_audio_configs[i].config);
       ok = false;
     } else {
       printf("configuration %u ok\n", k_audio_configs[i].config);
@@ -541,7 +537,7 @@ static bool verify_factory(void) {
   ifx_emu_display(g_emu, text);
   printf("  display \"%s\"\n", text);
   if (!reported) {
-    printf("  the restore did not report zero errors\n");
+    fprintf(stderr, "  the restore did not report zero errors\n");
   }
   const uint8_t *battery = ifx_emu_battery(g_emu);
   size_t differences = 0;
@@ -558,73 +554,38 @@ static bool verify_factory(void) {
     printf("  the panel's restore matches the factory battery\n");
     return reported;
   }
-  printf("  %zu bytes differ, the first at %04zx: %02x, the factory %02x\n", differences, first,
-         (unsigned)battery[first], (unsigned)reference[first]);
+  fprintf(stderr, "  %zu bytes differ, the first at %04zx: %02x, the factory %02x\n", differences,
+          first, (unsigned)battery[first], (unsigned)reference[first]);
   return false;
 }
 
-#define IFX_TIMING_REST 0x066666
 #define IFX_TIMING_IMPULSE 0x400000
 #define IFX_TIMING_LATENCY 64u
 #define IFX_TIMING_THRESHOLD 100000
 #define IFX_TIMING_SPACING 4096u
 #define IFX_TIMING_RUN_FRAMES 768u
 #define IFX_TIMING_SETTLE_RUN 512u
-#define IFX_TIMING_MAX_TABLE 0x12C8u
-#define IFX_TIMING_PARAMETER_LISTS 0x320Fu
-#define IFX_TIMING_FACTORY_PRESETS 0x2084u
-
-static uint8_t g_timing_max[IFX_EMU_PARAMETER_COUNT];
-static bool g_timing_max_valid;
-
-static bool timing_eprom_read(unsigned offset, uint8_t *data, size_t size) {
-  FILE *file = fopen(ifx_emu_eprom_path(g_emu), "rb");
-  if (file == NULL) {
-    return false;
-  }
-  bool ok = fseek(file, (long)offset, SEEK_SET) == 0 && fread(data, 1u, size, file) == size;
-  fclose(file);
-  return ok;
-}
 
 static unsigned timing_maximum(unsigned index) {
-  if (!g_timing_max_valid) {
-    g_timing_max_valid =
-        timing_eprom_read(IFX_TIMING_MAX_TABLE, g_timing_max, sizeof(g_timing_max));
-  }
-  return g_timing_max_valid && index < IFX_EMU_PARAMETER_COUNT ? g_timing_max[index] : 0u;
+  return index < IFX_EMU_PARAMETER_COUNT ? ifx_emu_eprom(g_emu)[IFX_EMU_MAX_TABLE + index] : 0u;
 }
 
 static bool timing_factory_values(unsigned config, uint8_t values[IFX_EMU_PARAMETER_COUNT]) {
   if (config >= IFX_AUDIO_CONFIGS) {
     return false;
   }
-  uint8_t list[64];
-  uint8_t record[55];
   unsigned preset = k_audio_configs[config].preset;
-  if (!timing_eprom_read(IFX_TIMING_PARAMETER_LISTS + 64u * config, list, sizeof(list)) ||
-      !timing_eprom_read(IFX_TIMING_FACTORY_PRESETS + 55u * (preset - 81u), record,
-                         sizeof(record))) {
-    return false;
-  }
-  memset(values, 0, IFX_EMU_PARAMETER_COUNT);
-  unsigned position = 1u;
-  for (unsigned i = 0; i < sizeof(list) && list[i] != 0u; ++i) {
-    if (list[i] >= IFX_EMU_PARAMETER_COUNT || position >= sizeof(record)) {
-      return false;
-    }
-    values[list[i]] = record[position++];
-  }
-  return true;
+  unsigned got = 0;
+  return ifx_emu_factory_preset(g_emu, preset, &got, values) && got == config;
 }
 
 static bool timing_direct_values(unsigned config, uint8_t values[IFX_EMU_PARAMETER_COUNT]) {
-  uint8_t list[64];
-  if (!timing_factory_values(config, values) ||
-      !timing_eprom_read(IFX_TIMING_PARAMETER_LISTS + 64u * config, list, sizeof(list))) {
+  if (!timing_factory_values(config, values)) {
     return false;
   }
-  for (unsigned i = 0; i < sizeof(list) && list[i] != 0u; ++i) {
+  const uint8_t *list =
+      ifx_emu_eprom(g_emu) + IFX_EMU_PARAMETER_LISTS + IFX_EMU_PARAMETER_LIST_STRIDE * config;
+  for (unsigned i = 0; i < IFX_EMU_PARAMETER_LIST_STRIDE && list[i] != 0u; ++i) {
     unsigned index = list[i];
     if (index == 2u || (index >= 6u && index <= 8u) || index == 45u ||
         (index >= 50u && index <= 53u)) {
@@ -638,22 +599,22 @@ static bool timing_direct_values(unsigned config, uint8_t values[IFX_EMU_PARAMET
   return true;
 }
 
-static bool timing_apply(unsigned config, const uint8_t values[IFX_EMU_PARAMETER_COUNT],
-                         uint64_t *settle_frames) {
+static bool timing_apply(unsigned config, const uint8_t values[IFX_EMU_PARAMETER_COUNT]) {
   if (!ifx_emu_load(g_emu, config, values)) {
-    printf("config %u: preset load refused\n", config);
+    fprintf(stderr, "config %u: preset load refused\n", config);
     return false;
   }
   if (!ifx_emu_send(g_emu, 2u, 0u)) {
-    printf("config %u: effect level send refused\n", config);
+    fprintf(stderr, "config %u: effect level send refused\n", config);
     return false;
   }
-  if (!ifx_emu_settle(g_emu, settle_frames)) {
-    printf("config %u: settle refused (preset %u config %u flags %06x ptr %06x frames %llu)\n",
-           config, ifx_emu_preset(g_emu), ifx_emu_config(g_emu),
-           ifx_dsp_board_word(ifx_emu_dsp(g_emu), DSP_SPACE_X, 0u),
-           ifx_dsp_board_word(ifx_emu_dsp(g_emu), DSP_SPACE_X, 0x17u),
-           (unsigned long long)ifx_emu_frames(g_emu));
+  if (!ifx_emu_settle(g_emu, NULL)) {
+    fprintf(stderr,
+            "config %u: settle refused (preset %u config %u flags %06x ptr %06x frames %llu)\n",
+            config, ifx_emu_preset(g_emu), ifx_emu_config(g_emu),
+            ifx_dsp_board_word(ifx_emu_dsp(g_emu), DSP_SPACE_X, 0u),
+            ifx_dsp_board_word(ifx_emu_dsp(g_emu), DSP_SPACE_X, 0x17u),
+            (unsigned long long)ifx_emu_frames(g_emu));
     return false;
   }
   return true;
@@ -662,8 +623,8 @@ static bool timing_apply(unsigned config, const uint8_t values[IFX_EMU_PARAMETER
 static size_t timing_first_deviation(const int32_t *left, const int32_t *right, size_t frames,
                                      int32_t threshold) {
   for (size_t i = 0; i < frames; ++i) {
-    int64_t dl = (int64_t)left[i] - IFX_TIMING_REST;
-    int64_t dr = (int64_t)right[i] - IFX_TIMING_REST;
+    int64_t dl = (int64_t)left[i] - IFX_EMU_REST_WORD;
+    int64_t dr = (int64_t)right[i] - IFX_EMU_REST_WORD;
     if ((dl < 0 ? -dl : dl) > threshold || (dr < 0 ? -dr : dr) > threshold) {
       return i;
     }
@@ -673,7 +634,7 @@ static size_t timing_first_deviation(const int32_t *left, const int32_t *right, 
 
 static bool timing_block_rest(const int32_t *samples, size_t start) {
   for (size_t i = 0; i < 32u; ++i) {
-    if (samples[start + i] != IFX_TIMING_REST) {
+    if (samples[start + i] != IFX_EMU_REST_WORD) {
       return false;
     }
   }
@@ -687,18 +648,18 @@ static void timing_sine(int32_t *samples, size_t frames, double hz, double phase
   }
 }
 
-static bool timing_latency(unsigned config, uint64_t *settle_frames) {
+static bool timing_latency(unsigned config) {
   uint8_t values[IFX_EMU_PARAMETER_COUNT];
   if (!timing_direct_values(config, values)) {
-    printf("config %u latency: values refused\n", config);
+    fprintf(stderr, "config %u latency: values refused\n", config);
     return false;
   }
-  if (!timing_apply(config, values, settle_frames)) {
-    printf("config %u latency: load or settle refused\n", config);
+  if (!timing_apply(config, values)) {
+    fprintf(stderr, "config %u latency: load or settle refused\n", config);
     return false;
   }
   if (!ifx_emu_align(g_emu)) {
-    printf("config %u latency: align refused\n", config);
+    fprintf(stderr, "config %u latency: align refused\n", config);
     return false;
   }
 
@@ -716,8 +677,8 @@ static bool timing_latency(unsigned config, uint64_t *settle_frames) {
     }
     size_t first = timing_first_deviation(left, right, IFX_TIMING_SPACING, IFX_TIMING_THRESHOLD);
     if (first != phase + IFX_TIMING_LATENCY) {
-      printf("config %u latency: phase %u first appears at %zu, expected %u\n", config, phase,
-             first, phase + IFX_TIMING_LATENCY);
+      fprintf(stderr, "config %u latency: phase %u first appears at %zu, expected %u\n", config,
+              phase, first, phase + IFX_TIMING_LATENCY);
       ok = false;
     }
   }
@@ -726,14 +687,15 @@ static bool timing_latency(unsigned config, uint64_t *settle_frames) {
   free(right);
 
   for (unsigned kind = 0; ok && kind < 2u; ++kind) {
-    if (!timing_apply(config, values, settle_frames)) {
-      printf("config %u %s latency: load or settle refused\n", config,
-             kind == 0u ? "sine" : "noise");
+    if (!timing_apply(config, values)) {
+      fprintf(stderr, "config %u %s latency: load or settle refused\n", config,
+              kind == 0u ? "sine" : "noise");
       ok = false;
       break;
     }
     if (!ifx_emu_align(g_emu)) {
-      printf("config %u %s latency: align refused\n", config, kind == 0u ? "sine" : "noise");
+      fprintf(stderr, "config %u %s latency: align refused\n", config,
+              kind == 0u ? "sine" : "noise");
       ok = false;
       break;
     }
@@ -758,13 +720,14 @@ static bool timing_latency(unsigned config, uint64_t *settle_frames) {
     }
     ifx_emu_feed request = {signal, IFX_TIMING_SETTLE_RUN, false};
     if (!ifx_emu_audio(g_emu, &request, out_left, out_right)) {
-      printf("config %u %s latency: feed refused\n", config, kind == 0u ? "sine" : "noise");
+      fprintf(stderr, "config %u %s latency: feed refused\n", config,
+              kind == 0u ? "sine" : "noise");
       ok = false;
     } else {
       size_t first = timing_first_deviation(out_left, out_right, IFX_TIMING_SETTLE_RUN, 1000);
       if (first != IFX_TIMING_LATENCY) {
-        printf("config %u %s latency first appears at %zu, expected %u\n", config,
-               kind == 0u ? "sine" : "noise", first, IFX_TIMING_LATENCY);
+        fprintf(stderr, "config %u %s latency first appears at %zu, expected %u\n", config,
+                kind == 0u ? "sine" : "noise", first, IFX_TIMING_LATENCY);
         ok = false;
       }
     }
@@ -773,15 +736,15 @@ static bool timing_latency(unsigned config, uint64_t *settle_frames) {
     free(out_right);
   }
   if (!ok) {
-    printf("config %u latency: FAILED\n", config);
+    fprintf(stderr, "config %u latency: FAILED\n", config);
   }
   return ok;
 }
 
-static bool timing_message(unsigned config, uint64_t *settle_frames) {
+static bool timing_message(unsigned config) {
   uint8_t values[IFX_EMU_PARAMETER_COUNT];
-  if (!timing_direct_values(config, values) || !timing_apply(config, values, settle_frames)) {
-    printf("config %u messages: setup failed\n", config);
+  if (!timing_direct_values(config, values) || !timing_apply(config, values)) {
+    fprintf(stderr, "config %u messages: setup failed\n", config);
     return false;
   }
   int32_t *input = calloc(IFX_TIMING_RUN_FRAMES, sizeof(*input));
@@ -806,7 +769,8 @@ static bool timing_message(unsigned config, uint64_t *settle_frames) {
       if (turn < 10u && frame == 32u + phase + 64u * turn) {
         unsigned value = (turn & 1u) != 0u ? maximum : 0u;
         if (!ifx_emu_send(g_emu, 3u, value)) {
-          printf("config %u messages: send failed at phase %u turn %u\n", config, phase, turn);
+          fprintf(stderr, "config %u messages: send failed at phase %u turn %u\n", config, phase,
+                  turn);
           ok = false;
           break;
         }
@@ -829,7 +793,7 @@ static bool timing_message(unsigned config, uint64_t *settle_frames) {
       break;
     }
     if (turn != 10u) {
-      printf("config %u messages: only %u turns ran at phase %u\n", config, turn, phase);
+      fprintf(stderr, "config %u messages: only %u turns ran at phase %u\n", config, turn, phase);
       ok = false;
       break;
     }
@@ -837,7 +801,8 @@ static bool timing_message(unsigned config, uint64_t *settle_frames) {
     unsigned count = 0;
     const ifx_emu_message *log = ifx_emu_messages(g_emu, &count);
     if (count != 10u) {
-      printf("config %u messages: %u logged at phase %u, expected 10\n", config, count, phase);
+      fprintf(stderr, "config %u messages: %u logged at phase %u, expected 10\n", config, count,
+              phase);
       ok = false;
       break;
     }
@@ -848,11 +813,12 @@ static bool timing_message(unsigned config, uint64_t *settle_frames) {
       uint64_t expected_pass = pass_base + 1u + block;
       if (log[k].index != 3u || log[k].value != value || log[k].frame_in != expected_frame ||
           log[k].pass_applied != expected_pass) {
-        printf("config %u messages: phase %u turn %u log index=%u value=%u frame=%llu pass=%llu,"
-               " expected 3/%u/%llu/%llu\n",
-               config, phase, k, log[k].index, log[k].value, (unsigned long long)log[k].frame_in,
-               (unsigned long long)log[k].pass_applied, value, (unsigned long long)expected_frame,
-               (unsigned long long)expected_pass);
+        fprintf(stderr,
+                "config %u messages: phase %u turn %u log index=%u value=%u frame=%llu pass=%llu,"
+                " expected 3/%u/%llu/%llu\n",
+                config, phase, k, log[k].index, log[k].value, (unsigned long long)log[k].frame_in,
+                (unsigned long long)log[k].pass_applied, value, (unsigned long long)expected_frame,
+                (unsigned long long)expected_pass);
         ok = false;
         break;
       }
@@ -862,10 +828,11 @@ static bool timing_message(unsigned config, uint64_t *settle_frames) {
       bool next_rest = timing_block_rest(left, start + 32u);
       bool previous_rest = timing_block_rest(left, start - 32u);
       if (got_rest != want_rest || next_rest != want_rest || previous_rest == want_rest) {
-        printf("config %u messages: phase %u turn %u output block %u rest=%d next=%d previous=%d,"
-               " expected %d\n",
-               config, phase, k, block, (int)got_rest, (int)next_rest, (int)previous_rest,
-               (int)want_rest);
+        fprintf(stderr,
+                "config %u messages: phase %u turn %u output block %u rest=%d next=%d previous=%d,"
+                " expected %d\n",
+                config, phase, k, block, (int)got_rest, (int)next_rest, (int)previous_rest,
+                (int)want_rest);
         ok = false;
         break;
       }
@@ -897,7 +864,7 @@ static bool timing_message(unsigned config, uint64_t *settle_frames) {
                  log[1].frame_in != frame_base + 32u || log[0].pass_applied != expected_pass ||
                  log[1].pass_applied != expected_pass || !timing_block_rest(left, 96u) ||
                  !timing_block_rest(right, 96u))) {
-        printf("config %u messages: two in a row failed\n", config);
+        fprintf(stderr, "config %u messages: two in a row failed\n", config);
         ok = false;
       }
     }
@@ -907,7 +874,7 @@ static bool timing_message(unsigned config, uint64_t *settle_frames) {
   free(left);
   free(right);
   if (!ok) {
-    printf("config %u messages: FAILED\n", config);
+    fprintf(stderr, "config %u messages: FAILED\n", config);
   }
   return ok;
 }
@@ -934,11 +901,11 @@ static uint32_t timing_parameter_checksum(void) {
 
 static bool timing_load_settle(unsigned config, uint64_t *settle_frames) {
   uint8_t values[IFX_EMU_PARAMETER_COUNT];
-  uint8_t list[64];
-  if (!timing_factory_values(config, values) ||
-      !timing_eprom_read(IFX_TIMING_PARAMETER_LISTS + 64u * config, list, sizeof(list))) {
+  if (!timing_factory_values(config, values)) {
     return false;
   }
+  const uint8_t *list =
+      ifx_emu_eprom(g_emu) + IFX_EMU_PARAMETER_LISTS + IFX_EMU_PARAMETER_LIST_STRIDE * config;
   unsigned first = list[0];
   values[first] = (uint8_t)(timing_maximum(first) / 2u);
 
@@ -957,10 +924,10 @@ static bool timing_load_settle(unsigned config, uint64_t *settle_frames) {
       ok = false;
       break;
     }
-    for (unsigned i = 0; i < sizeof(list) && list[i] != 0u; ++i) {
+    for (unsigned i = 0; i < IFX_EMU_PARAMETER_LIST_STRIDE && list[i] != 0u; ++i) {
       if (ifx_emu_value(g_emu, list[i]) != values[list[i]]) {
-        printf("config %u load: parameter %u is %u, expected %u\n", config, list[i],
-               ifx_emu_value(g_emu, list[i]), values[list[i]]);
+        fprintf(stderr, "config %u load: parameter %u is %u, expected %u\n", config, list[i],
+                ifx_emu_value(g_emu, list[i]), values[list[i]]);
         ok = false;
         break;
       }
@@ -971,7 +938,7 @@ static bool timing_load_settle(unsigned config, uint64_t *settle_frames) {
     }
     checksums[run] = timing_parameter_checksum();
     if (checksums[run] == 0u) {
-      printf("config %u load: DSP parameter words are empty\n", config);
+      fprintf(stderr, "config %u load: DSP parameter words are empty\n", config);
       ok = false;
       break;
     }
@@ -990,18 +957,18 @@ static bool timing_load_settle(unsigned config, uint64_t *settle_frames) {
   free(left);
   free(right);
   if (ok && (checksums[0] != checksums[1] || hashes[0] != hashes[1])) {
-    printf("config %u load: the two runs differ\n", config);
+    fprintf(stderr, "config %u load: the two runs differ\n", config);
     ok = false;
   }
   if (ok && settles[0] != settles[1]) {
-    printf("config %u settle: %llu and %llu frames\n", config, (unsigned long long)settles[0],
-           (unsigned long long)settles[1]);
+    fprintf(stderr, "config %u settle: %llu and %llu frames\n", config,
+            (unsigned long long)settles[0], (unsigned long long)settles[1]);
     ok = false;
   }
   if (ok) {
     *settle_frames = settles[0];
   } else {
-    printf("config %u load and settle: FAILED\n", config);
+    fprintf(stderr, "config %u load and settle: FAILED\n", config);
   }
   return ok;
 }
@@ -1009,7 +976,6 @@ static bool timing_load_settle(unsigned config, uint64_t *settle_frames) {
 typedef struct {
   unsigned config;
   unsigned preset;
-  uint64_t settle;
   uint64_t settle_load;
 } timing_row;
 
@@ -1017,27 +983,21 @@ static bool verify_timing(void) {
   timing_row rows[IFX_AUDIO_CONFIGS];
   for (unsigned i = 0; i < IFX_AUDIO_CONFIGS; ++i) {
     unsigned config = k_audio_configs[i].config;
-    uint64_t settle_latency = 0;
-    uint64_t settle_messages = 0;
     uint64_t settle_load = 0;
-    bool ok = timing_latency(config, &settle_latency);
-    if (!ok) {
-      printf("timing FAILED: configuration %u latency\n", config);
+    if (!timing_latency(config)) {
+      fprintf(stderr, "timing FAILED: configuration %u latency\n", config);
       return false;
     }
-    ok = timing_message(config, &settle_messages);
-    if (!ok) {
-      printf("timing FAILED: configuration %u messages\n", config);
+    if (!timing_message(config)) {
+      fprintf(stderr, "timing FAILED: configuration %u messages\n", config);
       return false;
     }
-    ok = timing_load_settle(config, &settle_load);
-    if (!ok) {
-      printf("timing FAILED: configuration %u load and settle\n", config);
+    if (!timing_load_settle(config, &settle_load)) {
+      fprintf(stderr, "timing FAILED: configuration %u load and settle\n", config);
       return false;
     }
     rows[i].config = config;
     rows[i].preset = k_audio_configs[i].preset;
-    rows[i].settle = settle_messages;
     rows[i].settle_load = settle_load;
   }
   printf("config preset  latency  phases  messages  turns  settle\n");
@@ -1045,7 +1005,6 @@ static bool verify_timing(void) {
     printf("%6u %6u %8u %7s %9s %6s %6llu\n", rows[i].config, rows[i].preset, IFX_TIMING_LATENCY,
            "0-31", "0-31", "10x64", (unsigned long long)rows[i].settle_load);
   }
-  (void)rows[0].settle;
   printf("timing ok\n");
   return true;
 }
@@ -1120,13 +1079,13 @@ static int command(const char *arg) {
       return IFX_CMD_FAILED;
     }
     bool ok = ifx_emu_send(g_emu, index, value);
-    printf("  send %u=%u: %s\n", index, value, ok ? "ok" : "refused");
+    fprintf(ok ? stdout : stderr, "  send %u=%u: %s\n", index, value, ok ? "ok" : "refused");
     return ok ? IFX_CMD_OK : IFX_CMD_FAILED;
   }
   if (strcmp(arg, "align") == 0) {
     bool ok = ifx_emu_align(g_emu);
-    printf("  align: %s, phase %u, block %llu\n", ok ? "ok" : "failed", ifx_emu_block_phase(g_emu),
-           (unsigned long long)ifx_emu_blocks(g_emu));
+    fprintf(ok ? stdout : stderr, "  align: %s, phase %u, block %llu\n", ok ? "ok" : "failed",
+            ifx_emu_block_phase(g_emu), (unsigned long long)ifx_emu_blocks(g_emu));
     return ok ? IFX_CMD_OK : IFX_CMD_FAILED;
   }
   if (strcmp(arg, "phase") == 0) {
@@ -1137,7 +1096,8 @@ static int command(const char *arg) {
   if (strcmp(arg, "settle") == 0) {
     uint64_t frames = 0;
     bool ok = ifx_emu_settle(g_emu, &frames);
-    printf("  settle: %s, %llu frames\n", ok ? "ok" : "failed", (unsigned long long)frames);
+    fprintf(ok ? stdout : stderr, "  settle: %s, %llu frames\n", ok ? "ok" : "failed",
+            (unsigned long long)frames);
     return ok ? IFX_CMD_OK : IFX_CMD_FAILED;
   }
   if (strcmp(arg, "verify:timing") == 0) {
@@ -1149,32 +1109,32 @@ static int command(const char *arg) {
       printf("echo ok\n");
       return IFX_CMD_OK;
     }
-    printf("echo FAILED\n");
+    fprintf(stderr, "echo FAILED\n");
     return IFX_CMD_FAILED;
   }
   if (strcmp(arg, "verify:audio") == 0) {
     bool ok = verify_audio();
-    printf("audio verification: %s\n", ok ? "ok" : "FAILED");
+    fprintf(ok ? stdout : stderr, "audio verification: %s\n", ok ? "ok" : "FAILED");
     return IFX_CMD_OK;
   }
   if (strcmp(arg, "verify:factory") == 0) {
     bool ok = verify_factory();
-    printf("factory restore: %s\n", ok ? "ok" : "FAILED");
+    fprintf(ok ? stdout : stderr, "factory restore: %s\n", ok ? "ok" : "FAILED");
     return IFX_CMD_OK;
   }
   if (strncmp(arg, "save:", 5) == 0) {
     bool ok = ifx_emu_battery_save(g_emu, arg + 5);
-    printf("  battery saved to %s: %s\n", arg + 5, ok ? "ok" : "failed");
+    fprintf(ok ? stdout : stderr, "  battery saved to %s: %s\n", arg + 5, ok ? "ok" : "failed");
     return ok ? IFX_CMD_OK : IFX_CMD_FAILED;
   }
   if (strncmp(arg, "load:", 5) == 0) {
     if (arg[5] >= '0' && arg[5] <= '9') {
       bool ok = command_load(arg + 5);
-      printf("  preset load: %s\n", ok ? "ok" : "refused");
+      fprintf(ok ? stdout : stderr, "  preset load: %s\n", ok ? "ok" : "refused");
       return ok ? IFX_CMD_OK : IFX_CMD_FAILED;
     }
     bool ok = ifx_emu_battery_load(g_emu, arg + 5);
-    printf("  battery loaded from %s: %s\n", arg + 5, ok ? "ok" : "failed");
+    fprintf(ok ? stdout : stderr, "  battery loaded from %s: %s\n", arg + 5, ok ? "ok" : "failed");
     if (ok) {
       ifx_emu_reset(g_emu);
     }
@@ -1183,7 +1143,7 @@ static int command(const char *arg) {
   if (strncmp(arg, "recall:", 7) == 0) {
     unsigned preset = (unsigned)strtoul(arg + 7, NULL, 10);
     bool ok = ifx_emu_recall(g_emu, preset);
-    printf("  recall %u: %s\n", preset, ok ? "ok" : "refused");
+    fprintf(ok ? stdout : stderr, "  recall %u: %s\n", preset, ok ? "ok" : "refused");
     return ok ? IFX_CMD_OK : IFX_CMD_FAILED;
   }
   if (strncmp(arg, "set:", 4) == 0) {
@@ -1193,8 +1153,8 @@ static int command(const char *arg) {
       return IFX_CMD_FAILED;
     }
     bool ok = ifx_emu_set_parameter(g_emu, index, value);
-    printf("  parameter %u: %s, reads %u\n", index, ok ? "set" : "refused",
-           ifx_emu_value(g_emu, index));
+    fprintf(ok ? stdout : stderr, "  parameter %u: %s, reads %u\n", index, ok ? "set" : "refused",
+            ifx_emu_value(g_emu, index));
     return ok ? IFX_CMD_OK : IFX_CMD_FAILED;
   }
   if (strncmp(arg, "silence:", 8) == 0 || strncmp(arg, "impulse:", 8) == 0) {
@@ -1231,6 +1191,9 @@ static int command(const char *arg) {
       return IFX_CMD_FAILED;
     }
     size_t frames = frames_for_ms(ms);
+    if (frames == 0u) {
+      return IFX_CMD_FAILED;
+    }
     int32_t *input = tone_samples(hz, ms);
     int32_t *left = calloc(frames, sizeof(*left));
     int32_t *right = calloc(frames, sizeof(*right));

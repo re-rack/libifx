@@ -126,7 +126,7 @@ harness` builds `build/harness/libifxharness.a`, `make tools` the programs below
 |---|---|
 | `hatari/` | Hatari's DSP56001 interpreter and disassembler (GPL-2.0-or-later), with the board's memory map; its `README.md` lists every change |
 | `mcs51/` | mcs51_emulator (MIT) for the 80C32, with the core bugs a lockstep run against ucsim `s51` found fixed; its `README.md` lists them |
-| `ifx_dsp_board.{c,h}` | the DSP side: the core, the host interface, the SSI and the port registers |
+| `ifx_dsp_board.{c,h}` | the DSP side: the core, the host interface and the SSI |
 | `ifx_mcu_board.{c,h}` | the MCU side: battery RAM, the host port, the panel's knobs and buttons, the display |
 | `ifx_emu.{c,h}` | the coupled board: power on, recall, panel edits one detent at a time, a parameter sent through the MCU's own `C:0EE0` without advancing audio, block alignment, a run started at the configuration's initialisation from any knob vector (`ifx_emu_start`), or at rest (`ifx_emu_load`, `ifx_emu_settle`), audio in and out, the log of parameter messages |
 | `ifx_mcu_bringup.c` | `build/tools/ifx_mcu_bringup`, a command line over `ifx_emu` (its file comment lists the commands; `verify:audio`, `verify:echo`, `verify:factory` and `verify:timing` are its checks) |

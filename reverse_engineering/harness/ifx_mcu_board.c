@@ -29,6 +29,9 @@
 #define IFX_MCU_BOARD_XDATA_SEG_HI 0x8007u
 #define IFX_MCU_BOARD_XDATA_PANEL_OUT_B 0x8101u
 
+/* The two direct-path level latches, X:8001 (left) and X:8101 (right). */
+enum { DIRECT_LEFT = 0, DIRECT_RIGHT = 1, DIRECT_COUNT = 2 };
+
 typedef struct {
   bool on_p1;
   uint8_t clock_bit;
@@ -69,7 +72,7 @@ struct ifx_mcu_board {
 
   uint8_t p1;
   uint8_t panel_in;
-  uint8_t panel_out[IFX_MCU_BOARD_DIRECT_COUNT];
+  uint8_t panel_out[DIRECT_COUNT];
   uint8_t leds;
   uint8_t digit[2];
   uint8_t seg[2];
@@ -80,11 +83,6 @@ struct ifx_mcu_board {
 
   ifx_mcu_board_host_t host;
   bool dsp_reset;
-  void (*midi_out)(void *user, uint8_t byte);
-  void *midi_user;
-
-  unsigned unmapped_reads;
-  unsigned unmapped_writes;
 };
 
 static bool board_host_page(uint16_t addr, unsigned *reg) {
@@ -151,7 +149,7 @@ static void board_scan_knob(ifx_mcu_board *board, ifx_mcu_board_encoder encoder)
 static bool board_xdata_peek(const ifx_mcu_board *board, uint16_t addr, uint8_t *value) {
   switch (addr) {
   case IFX_MCU_BOARD_XDATA_PANEL_OUT_A:
-    *value = board->panel_out[IFX_MCU_BOARD_DIRECT_LEFT];
+    *value = board->panel_out[DIRECT_LEFT];
     return true;
   case IFX_MCU_BOARD_XDATA_PANEL_IN:
     *value = (uint8_t)~board->panel_in;
@@ -172,7 +170,7 @@ static bool board_xdata_peek(const ifx_mcu_board *board, uint16_t addr, uint8_t 
     *value = board->seg[1];
     return true;
   case IFX_MCU_BOARD_XDATA_PANEL_OUT_B:
-    *value = board->panel_out[IFX_MCU_BOARD_DIRECT_RIGHT];
+    *value = board->panel_out[DIRECT_RIGHT];
     return true;
   default:
     break;
@@ -195,13 +193,11 @@ static uint8_t board_xdata_read(const cpu_t *cpu, uint16_t addr, void *user) {
     board_scan_knob(board, IFX_MCU_BOARD_FUNCTION_SELECT);
     board_scan_knob(board, IFX_MCU_BOARD_PARAMETER_SELECT);
     board_scan_knob(board, IFX_MCU_BOARD_PARAMETER_ADJUST);
-    return (uint8_t)~board->panel_in;
   }
   uint8_t value = 0;
   if (board_xdata_peek(board, addr, &value)) {
     return value;
   }
-  board->unmapped_reads++;
   return 0xFFu;
 }
 
@@ -217,7 +213,7 @@ static void board_xdata_write(cpu_t *cpu, uint16_t addr, uint8_t value, void *us
   }
   switch (addr) {
   case IFX_MCU_BOARD_XDATA_PANEL_OUT_A:
-    board->panel_out[IFX_MCU_BOARD_DIRECT_LEFT] = value;
+    board->panel_out[DIRECT_LEFT] = value;
     return;
   case IFX_MCU_BOARD_XDATA_LEDS:
     board->leds = value;
@@ -235,7 +231,7 @@ static void board_xdata_write(cpu_t *cpu, uint16_t addr, uint8_t value, void *us
     board->seg[1] = value;
     return;
   case IFX_MCU_BOARD_XDATA_PANEL_OUT_B:
-    board->panel_out[IFX_MCU_BOARD_DIRECT_RIGHT] = value;
+    board->panel_out[DIRECT_RIGHT] = value;
     return;
   default:
     break;
@@ -244,7 +240,6 @@ static void board_xdata_write(cpu_t *cpu, uint16_t addr, uint8_t value, void *us
     board->battery[addr] = value;
     return;
   }
-  board->unmapped_writes++;
 }
 
 // cppcheck-suppress constParameterCallback
@@ -295,13 +290,6 @@ static void board_tick_uart(cpu_t *cpu, uint32_t cycles, void *user) {
   uart_tick((uart_t *)user, cycles);
 }
 
-static void board_midi_transmit(uint8_t byte, void *user) {
-  ifx_mcu_board *board = user;
-  if (board->midi_out != NULL) {
-    board->midi_out(board->midi_user, byte);
-  }
-}
-
 static void board_wire(ifx_mcu_board *board) {
   board->tick_hooks[0].fn = board_tick_timers;
   board->tick_hooks[0].user = &board->timers;
@@ -309,7 +297,6 @@ static void board_wire(ifx_mcu_board *board) {
   board->tick_hooks[1].user = &board->uart;
 
   uart_init(&board->uart, &board->timing);
-  uart_set_tx_callback(&board->uart, board_midi_transmit, board);
   uart_attach(&board->cpu, &board->uart);
   timers_init(&board->timers, &board->cpu);
   ports_init(&board->ports, &board->cpu, board_port_read, board_port_write, board);
@@ -320,8 +307,8 @@ static void board_wire(ifx_mcu_board *board) {
 static void board_clear_panel(ifx_mcu_board *board) {
   board->p1 = 0;
   board->panel_in = 0;
-  board->panel_out[IFX_MCU_BOARD_DIRECT_LEFT] = 0;
-  board->panel_out[IFX_MCU_BOARD_DIRECT_RIGHT] = 0;
+  board->panel_out[DIRECT_LEFT] = 0;
+  board->panel_out[DIRECT_RIGHT] = 0;
   board->leds = 0;
   board->digit[0] = 0;
   board->digit[1] = 0;
@@ -370,18 +357,6 @@ bool ifx_mcu_board_load_firmware(ifx_mcu_board *board, const uint8_t *image, siz
   return true;
 }
 
-bool ifx_mcu_board_load_firmware_file(ifx_mcu_board *board, const char *path) {
-  FILE *file = fopen(path, "rb");
-  if (file == NULL) {
-    return false;
-  }
-  memset(board->code, 0xFF, sizeof(board->code));
-  size_t read = fread(board->code, 1u, sizeof(board->code), file);
-  bool ok = ferror(file) == 0 && (read < sizeof(board->code) || fgetc(file) == EOF);
-  fclose(file);
-  return ok;
-}
-
 void ifx_mcu_board_set_host(ifx_mcu_board *board, const ifx_mcu_board_host_t *host) {
   board->host = host != NULL ? *host : (ifx_mcu_board_host_t){0};
 }
@@ -390,8 +365,6 @@ void ifx_mcu_board_reset(ifx_mcu_board *board) {
   board_clear_panel(board);
   cpu_reset(&board->cpu);
   board_wire(board);
-  board->unmapped_reads = 0;
-  board->unmapped_writes = 0;
 }
 
 uint64_t ifx_mcu_board_step(ifx_mcu_board *board, uint64_t clocks) {
@@ -447,13 +420,6 @@ void ifx_mcu_board_display(const ifx_mcu_board *board, char *text) {
 
 uint8_t ifx_mcu_board_leds(const ifx_mcu_board *board) { return board->leds; }
 
-uint8_t ifx_mcu_board_direct_level(const ifx_mcu_board *board, ifx_mcu_board_direct channel) {
-  if ((unsigned)channel >= (unsigned)IFX_MCU_BOARD_DIRECT_COUNT) {
-    return 0;
-  }
-  return board->panel_out[channel];
-}
-
 // cppcheck-suppress constParameterPointer
 uint8_t *ifx_mcu_board_battery(ifx_mcu_board *board) { return board->battery; }
 
@@ -463,7 +429,8 @@ void ifx_mcu_board_battery_erase(ifx_mcu_board *board) {
 
 static void battery_copy(ifx_mcu_board *board, uint16_t dest, uint16_t src, uint16_t count) {
   for (uint16_t i = 0; i < count; ++i) {
-    if ((uint32_t)dest + i < (uint32_t)sizeof(board->battery)) {
+    if ((uint32_t)dest + i < (uint32_t)sizeof(board->battery) &&
+        (uint32_t)src + i < (uint32_t)sizeof(board->code)) {
       board->battery[dest + i] = board->code[src + i];
     }
   }
@@ -510,16 +477,6 @@ bool ifx_mcu_board_battery_load(ifx_mcu_board *board, const char *path) {
   bool ok = read == sizeof(board->battery);
   fclose(file);
   return ok;
-}
-
-void ifx_mcu_board_midi_handler(ifx_mcu_board *board, void (*fn)(void *user, uint8_t byte),
-                                void *user) {
-  board->midi_out = fn;
-  board->midi_user = user;
-}
-
-bool ifx_mcu_board_midi_receive(ifx_mcu_board *board, uint8_t byte) {
-  return uart_queue_rx_byte(&board->uart, byte);
 }
 
 uint16_t ifx_mcu_board_pc(const ifx_mcu_board *board) { return board->cpu.pc; }
@@ -574,10 +531,4 @@ uint8_t ifx_mcu_board_xdata(const ifx_mcu_board *board, uint16_t addr) {
   uint8_t value = 0xFFu;
   board_xdata_peek(board, addr, &value);
   return value;
-}
-
-unsigned ifx_mcu_board_unmapped_reads(const ifx_mcu_board *board) { return board->unmapped_reads; }
-
-unsigned ifx_mcu_board_unmapped_writes(const ifx_mcu_board *board) {
-  return board->unmapped_writes;
 }

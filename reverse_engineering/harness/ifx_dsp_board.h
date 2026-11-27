@@ -14,10 +14,6 @@
 /* One frame is one input sample, in the core's unit: DSP clock cycles, two per
  * instruction cycle. 33 MHz of DSP clock over 39.0625 kHz. */
 #define IFX_DSP_BOARD_FRAME_CYCLES 846u
-/* 16-bit words for the A/D and the DAC on one frame sync. */
-#define IFX_DSP_BOARD_SSI_CLOCKS 32u
-
-enum ifx_dsp_port { IFX_DSP_PORT_B = 0, IFX_DSP_PORT_C = 1 };
 
 typedef struct ifx_dsp_board ifx_dsp_board;
 
@@ -33,27 +29,13 @@ void ifx_dsp_board_clear_memory(ifx_dsp_board *board);
  * header; ICR, CVR and the transmit bytes are writable, ISR is read only. */
 void ifx_dsp_board_host_write(ifx_dsp_board *board, unsigned reg, uint8_t value);
 uint8_t ifx_dsp_board_host_read(const ifx_dsp_board *board, unsigned reg);
-bool ifx_dsp_board_host_transmit_ready(const ifx_dsp_board *board); /* ISR TXDE */
-bool ifx_dsp_board_host_receive_ready(const ifx_dsp_board *board);  /* ISR RXDF */
 
-/* One host word as TRXH, TRXM, TRXL: the order C:0FA4 sends them, and the one
- * the bootstrap loader and the receive vector expect. */
-void ifx_dsp_board_host_send(ifx_dsp_board *board, uint32_t word);
-/* RXH, RXM, RXL; RXDF clears on the low byte, as on the part. */
-uint32_t ifx_dsp_board_host_receive(const ifx_dsp_board *board);
-
-/* The interrupt the host interface raises towards the MCU, cleared by the next
- * read or write that leaves ICR and ISR without a pending request. */
-bool ifx_dsp_board_host_request(const ifx_dsp_board *board);
-
-/* Run the core: one instruction, or whole instructions until at least `cycles`
- * have elapsed. Nothing runs while the part waits for its bootstrap. */
-void ifx_dsp_board_step(ifx_dsp_board *board);
+/* Run the core: whole instructions until at least `cycles` have elapsed.
+ * Nothing runs while the part waits for its bootstrap. */
 void ifx_dsp_board_run(ifx_dsp_board *board, uint32_t cycles);
 
-/* The program counter and a one-shot breakpoint: a step at `pc` stops before
- * executing it. 0xFFFFFFFF clears it. */
-uint32_t ifx_dsp_board_pc(const ifx_dsp_board *board);
+/* A one-shot breakpoint: a step at `pc` stops before executing it. 0xFFFFFFFF
+ * clears it. */
 void ifx_dsp_board_set_breakpoint(ifx_dsp_board *board, uint32_t pc);
 bool ifx_dsp_board_breakpoint_hit(const ifx_dsp_board *board);
 void ifx_dsp_board_clear_breakpoint(ifx_dsp_board *board);
@@ -71,14 +53,10 @@ void ifx_dsp_board_frame(ifx_dsp_board *board, uint32_t in, int32_t *left, int32
  * recorder feeds Q23 words past the A/D's word length. */
 void ifx_dsp_board_frame_wide(ifx_dsp_board *board, uint32_t in, int32_t *left, int32_t *right);
 
-/* The two words the last frame clocked out. */
-void ifx_dsp_board_output(const ifx_dsp_board *board, int32_t *left, int32_t *right);
-
 unsigned ifx_dsp_board_receive_overruns(const ifx_dsp_board *board);
 unsigned ifx_dsp_board_transmit_underruns(const ifx_dsp_board *board);
 uint64_t ifx_dsp_board_frames(const ifx_dsp_board *board);
 uint64_t ifx_dsp_board_passes(const ifx_dsp_board *board);
-uint64_t ifx_dsp_board_cycles(const ifx_dsp_board *board);
 bool ifx_dsp_board_running(const ifx_dsp_board *board);
 
 /* Memory as the core sees it: internal words, then the external array that P,
@@ -88,25 +66,5 @@ bool ifx_dsp_board_running(const ifx_dsp_board *board);
  * peripheral. */
 uint32_t ifx_dsp_board_word(const ifx_dsp_board *board, unsigned space, uint32_t address);
 void ifx_dsp_board_store(ifx_dsp_board *board, unsigned space, uint32_t address, uint32_t value);
-
-/* Registers the board owns rather than the core's datapath. BCR's wait states
- * and IPR's interrupt levels are static on this board: no device drives IRQA,
- * IRQB or the bus. */
-uint32_t ifx_dsp_board_omr(const ifx_dsp_board *board);
-void ifx_dsp_board_set_omr(ifx_dsp_board *board, uint32_t value);
-uint32_t ifx_dsp_board_bcr(const ifx_dsp_board *board);
-void ifx_dsp_board_set_bcr(ifx_dsp_board *board, uint32_t value);
-uint32_t ifx_dsp_board_ipr(const ifx_dsp_board *board);
-void ifx_dsp_board_set_ipr(ifx_dsp_board *board, uint32_t value);
-
-/* Port B and C control and data registers (DSP_PBC..DSP_PCD) and the pin
- * levels the board drives: an output pin reads back its data bit, an input
- * pin reads low since nothing drives it. */
-uint32_t ifx_dsp_board_port_register(const ifx_dsp_board *board, unsigned reg);
-unsigned ifx_dsp_board_port_pins(const ifx_dsp_board *board, enum ifx_dsp_port port);
-
-/* CPU registers by DSP_REG_* number. */
-uint32_t ifx_dsp_board_reg(const ifx_dsp_board *board, unsigned reg);
-void ifx_dsp_board_set_reg(ifx_dsp_board *board, unsigned reg, uint32_t value);
 
 #endif /* IFX_DSP_BOARD_H */

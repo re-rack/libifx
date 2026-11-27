@@ -41,13 +41,10 @@
 #define IFX_EMU_MCU_IDLE_PC 0x0140u
 #define IFX_EMU_MCU_CALL_SENTINEL 0xFFFFu
 
-#define IFX_EMU_MAX_TABLE 0x12C8u
-#define IFX_EMU_PARAMETER_LISTS 0x320Fu
-#define IFX_EMU_PARAMETER_LIST_STRIDE 64u
 #define IFX_EMU_USER_PRESETS 0x0A81u
+#define IFX_EMU_FACTORY_PRESETS 0x2084u
 #define IFX_EMU_PRESET_BYTES 55u
 #define IFX_EMU_LOAD_PRESET 2u
-#define IFX_EMU_REST_WORD 0x066666
 #define IFX_EMU_SETTLE_BLOCKS 4u
 #define IFX_EMU_SETTLE_LIMIT 1000000u
 
@@ -90,7 +87,6 @@ struct ifx_emu {
   bool start_pending;
   ifx_emu_message messages[IFX_EMU_MESSAGES];
   unsigned message_count;
-  unsigned message_dropped;
 };
 
 /* SHA-256, FIPS 180-4. Only the EPROM's digest is ever computed. */
@@ -284,13 +280,16 @@ static uint32_t ring_address(uint32_t base, unsigned offset) {
 }
 
 static void message_append(ifx_emu *emu, uint64_t frame, uint32_t read, uint32_t write) {
+  if (read < IFX_EMU_RING_BASE || read >= IFX_EMU_RING_BASE + IFX_EMU_RING_SIZE ||
+      write < IFX_EMU_RING_BASE || write >= IFX_EMU_RING_BASE + IFX_EMU_RING_SIZE) {
+    return;
+  }
   unsigned wrote = (write - read) % IFX_EMU_RING_SIZE;
   for (unsigned offset = 0; offset + 1u < wrote; offset += 2u) {
     if (emu->message_count == IFX_EMU_MESSAGES) {
       memmove(&emu->messages[0], &emu->messages[1],
               sizeof(emu->messages[0]) * (IFX_EMU_MESSAGES - 1u));
       emu->message_count--;
-      emu->message_dropped++;
     }
     ifx_emu_message *message = &emu->messages[emu->message_count++];
     message->frame_in = frame;
@@ -298,7 +297,6 @@ static void message_append(ifx_emu *emu, uint64_t frame, uint32_t read, uint32_t
     message->pass_applied = 0;
     message->index = ifx_dsp_board_word(emu->dsp, DSP_SPACE_Y, ring_address(read, offset));
     message->value = ifx_dsp_board_word(emu->dsp, DSP_SPACE_Y, ring_address(read, offset + 1u));
-    message->words = 2u;
   }
 }
 
@@ -408,6 +406,8 @@ void ifx_emu_run_ms(ifx_emu *emu, unsigned ms) {
   run_clocks(emu, (uint64_t)ms * (IFX_MCU_BOARD_XTAL_HZ / 1000u));
 }
 
+static bool ifx_emu_ready(const ifx_emu *emu);
+
 /* The DSP starts 2.27 s into the boot and needs its first block before the
  * panel answers, so the boot is over a second after the core is running. */
 static bool boot(ifx_emu *emu) {
@@ -485,7 +485,35 @@ ifx_dsp_board *ifx_emu_dsp(const ifx_emu *emu) { return emu->dsp; }
 
 const char *ifx_emu_eprom_path(const ifx_emu *emu) { return emu->eprom_path; }
 
-bool ifx_emu_ready(const ifx_emu *emu) {
+const uint8_t *ifx_emu_eprom(const ifx_emu *emu) { return emu->eprom; }
+
+bool ifx_emu_factory_preset(const ifx_emu *emu, unsigned preset, unsigned *config,
+                            uint8_t values[IFX_EMU_PARAMETER_COUNT]) {
+  if (emu == NULL || config == NULL || values == NULL || preset < 81u ||
+      preset > IFX_EMU_PRESET_COUNT) {
+    return false;
+  }
+  const uint8_t *record =
+      &emu->eprom[IFX_EMU_FACTORY_PRESETS + IFX_EMU_PRESET_BYTES * (preset - 81u)];
+  unsigned cfg = record[0] & 0x07u;
+  if (cfg >= 6u) {
+    cfg = 0u;
+  }
+  *config = cfg;
+  memset(values, 0, IFX_EMU_PARAMETER_COUNT);
+  const uint8_t *list = &emu->eprom[IFX_EMU_PARAMETER_LISTS + IFX_EMU_PARAMETER_LIST_STRIDE * cfg];
+  unsigned position = 1u;
+  for (unsigned i = 0; i < IFX_EMU_PARAMETER_LIST_STRIDE && list[i] != 0u; ++i) {
+    unsigned index = list[i];
+    if (index >= IFX_EMU_PARAMETER_COUNT || position >= IFX_EMU_PRESET_BYTES) {
+      return false;
+    }
+    values[index] = record[position++];
+  }
+  return true;
+}
+
+static bool ifx_emu_ready(const ifx_emu *emu) {
   return ifx_dsp_board_running(emu->dsp) && ifx_dsp_board_frames(emu->dsp) != 0u;
 }
 
@@ -532,6 +560,11 @@ bool ifx_emu_send(ifx_emu *emu, unsigned index, unsigned value) {
 
   ifx_mcu_board_cpu_state saved;
   ifx_mcu_board_cpu_save(emu->mcu, &saved);
+  if (saved.sp > 0xFDu) {
+    fprintf(stderr, "ifx_emu_send: SP %02x leaves no room for the call's return address\n",
+            (unsigned)saved.sp);
+    return false;
+  }
   observe_ring(emu);
   uint32_t start_write = ifx_dsp_board_word(emu->dsp, DSP_SPACE_X, IFX_EMU_RING_WRITE);
 
@@ -876,7 +909,7 @@ static bool seek_page(ifx_emu *emu, unsigned page) {
   return ifx_emu_page(emu) == page;
 }
 
-bool ifx_emu_select(ifx_emu *emu, unsigned index) {
+static bool ifx_emu_select(ifx_emu *emu, unsigned index) {
   if (index >= IFX_EMU_PARAMETER_COUNT) {
     return false;
   }
@@ -970,7 +1003,6 @@ void ifx_emu_reset(ifx_emu *emu) {
   emu->dsp_frame_acc = 0;
   emu->ring_valid = false;
   emu->message_count = 0;
-  emu->message_dropped = 0;
   boot(emu);
 }
 

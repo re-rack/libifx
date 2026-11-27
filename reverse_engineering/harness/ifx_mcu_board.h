@@ -42,12 +42,6 @@ typedef enum {
   IFX_MCU_BOARD_BUTTON_COUNT = 5
 } ifx_mcu_board_button;
 
-typedef enum {
-  IFX_MCU_BOARD_DIRECT_LEFT = 0,
-  IFX_MCU_BOARD_DIRECT_RIGHT = 1,
-  IFX_MCU_BOARD_DIRECT_COUNT = 2
-} ifx_mcu_board_direct;
-
 /* The DSP as the MCU sees it: `reg` is the DSP56001 host port register the
  * MCU selects with P2 = 0x80 + reg and R0 = 0 (0 ICR, 1 CVR, 2 ISR, 3 IVR,
  * 5..7 transmit or receive bytes). `reset` follows the /RESET line on P3.4. */
@@ -64,7 +58,6 @@ void ifx_mcu_board_destroy(ifx_mcu_board *board);
 /* The whole EPROM image, not just the MCU half: the firmware copies the DSP
  * bootstrap and images out of 0x4AF0. */
 bool ifx_mcu_board_load_firmware(ifx_mcu_board *board, const uint8_t *image, size_t size);
-bool ifx_mcu_board_load_firmware_file(ifx_mcu_board *board, const char *path);
 void ifx_mcu_board_set_host(ifx_mcu_board *board, const ifx_mcu_board_host_t *host);
 
 /* Reset from the reset vector with the battery RAM and the panel kept. */
@@ -80,8 +73,6 @@ void ifx_mcu_board_panel_button(ifx_mcu_board *board, ifx_mcu_board_button butto
 /* The 16 characters the display scan last drew, NUL terminated. */
 void ifx_mcu_board_display(const ifx_mcu_board *board, char *text);
 uint8_t ifx_mcu_board_leds(const ifx_mcu_board *board);
-/* The direct path's level latches, X:8001 and X:8101. */
-uint8_t ifx_mcu_board_direct_level(const ifx_mcu_board *board, ifx_mcu_board_direct channel);
 
 /* Battery RAM as the firmware leaves it; a unit with a dead battery reads
  * zero and reports EXT MEMORY ERROR until the tables are restored. */
@@ -90,11 +81,6 @@ void ifx_mcu_board_battery_erase(ifx_mcu_board *board);
 void ifx_mcu_board_battery_factory(ifx_mcu_board *board);
 bool ifx_mcu_board_battery_save(const ifx_mcu_board *board, const char *path);
 bool ifx_mcu_board_battery_load(ifx_mcu_board *board, const char *path);
-
-/* MIDI out as the 31,250 baud UART sends it, and one byte into MIDI in. */
-void ifx_mcu_board_midi_handler(ifx_mcu_board *board, void (*fn)(void *user, uint8_t byte),
-                                void *user);
-bool ifx_mcu_board_midi_receive(ifx_mcu_board *board, uint8_t byte);
 
 /* A synthetic firmware call needs the CPU's whole register state and IRAM. */
 typedef struct {
@@ -116,7 +102,5 @@ bool ifx_mcu_board_in_isr(const ifx_mcu_board *board);
 uint16_t ifx_mcu_board_pc(const ifx_mcu_board *board);
 uint8_t ifx_mcu_board_iram(const ifx_mcu_board *board, uint8_t addr);
 uint8_t ifx_mcu_board_xdata(const ifx_mcu_board *board, uint16_t addr);
-unsigned ifx_mcu_board_unmapped_reads(const ifx_mcu_board *board);
-unsigned ifx_mcu_board_unmapped_writes(const ifx_mcu_board *board);
 
 #endif /* IFX_MCU_BOARD_H */

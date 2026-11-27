@@ -4,11 +4,6 @@ A C17 library, `libifx`, that re-creates the six effect configurations of the Ro
 LTD (1995) for use as audio plugins, bit-exact against the original firmware: for the same input
 and knob settings, the same output samples as the hardware's DSP.
 
-**Status: complete.** All six configurations are ported and checked against fixtures recorded from
-the original firmware, which a two-CPU harness runs. The effects share the DSP's front, Hush,
-mixer, ducker and memory wipe, and their families share the regenerating delay lines and the
-chorus, pitch and reverb networks.
-
 | Configuration | Effect | Status |
 |---|---|---|
 | Hush; Reverb | `ifx_reverb` | complete |
@@ -31,9 +26,9 @@ chorus, pitch and reverb networks.
 
 ## Disclaimer
 
-This is not a clean-room reimplementation: bit-exactness needs the firmware's tables and arithmetic
-translated verbatim. Depending on where you live, that may be considered copyright infringement.
-The repository holds neither the firmware nor the manual.
+The code is not a clean-room reverse engineering of the original firmware. Bit-exactness was my aim and that is simply not possible without translating the tables and algorithms verbatim. Many other projects go around this by emulating the whole hardware and pushing the responsibility of finding the firmware to the user. That however was a no-go for me due to very high CPU cost. I think we should be able to conserve vintage hardware sound without needing a beefy computer. This library is very light on resources. Most effects are 100x faster than realtime on my 7800X3D.
+
+Depending on where you live this might be considered a copyright infringement. Eventhough algorithms and math can't be copyrighted, a 1-on-1 translation is still not allowed by many authorities. Methods can be patented though and I have no idea if any of the effects use any kind of patented method.
 
 ## Make targets
 
@@ -66,12 +61,3 @@ under any name, is found by SHA-256 and used instead ([`reverse_engineering/READ
 - `check-convert`: `aarch64-linux-gnu-gcc`, `riscv64-linux-gnu-gcc`, `qemu-aarch64`, `qemu-riscv64`; `coverage`: `gcov`
 - `python3`, `ruff`: the workspace scripts
 - Ghidra 12.2 with Ghidra-Rare's DSP56000 module ([aleph-void/Ghidra-Rare](https://github.com/aleph-void/Ghidra-Rare)) and PyGhidra
-
-## Layout
-
-| Path | Contents |
-|---|---|
-| `src/` | the library |
-| `tests/` | the recorder, the checker and the fixtures ([`tests/README.md`](tests/README.md)) |
-| `reverse_engineering/` | the workspace scripts, the harness and the firmware map ([`EFFECTS.md`](reverse_engineering/EFFECTS.md)) |
-| `AGENTS.md` | the project's rules and decisions |

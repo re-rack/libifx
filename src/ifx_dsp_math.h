@@ -14,24 +14,43 @@
 
 enum { IFX_W24_MAX = 0x7FFFFF, IFX_W24_MIN = -0x800000 };
 
+#define IFX_A1_FIELD 0xFFFFFF000000ULL
+
 #ifndef __cplusplus /* the library is compiled as C; C++ hosts only include this */
 // cppcheck-suppress shiftNegativeLHS -- DSP ASR, defined by GCC/Clang
 _Static_assert((-1 >> 1) == -1, "ifx_asr needs an arithmetic right shift");
 #endif
 
-/* The DSP56000 AGU's post-update with modulo M: M+1 words in the next
- * power-of-two window; a delta that is a multiple of the window steps linearly. */
+/* The DSP56000 AGU's post-update of a 16-bit address with modulo M: M+1 words
+ * in the next power-of-two window; a delta that is a multiple of the window
+ * steps linearly. */
 static inline uint32_t ifx_agu_step(uint32_t address, int32_t delta, uint32_t m) {
+  address &= 0xFFFFu;
   const uint32_t modulo = m + 1u;
-  uint32_t bufsize = 1u;
-  while (bufsize < modulo) {
-    bufsize <<= 1u;
+  uint32_t bufmask = m;
+  bufmask |= bufmask >> 1u;
+  bufmask |= bufmask >> 2u;
+  bufmask |= bufmask >> 4u;
+  bufmask |= bufmask >> 8u;
+  bufmask |= bufmask >> 16u;
+  const uint32_t magnitude = delta < 0 ? 0u - (uint32_t)delta : (uint32_t)delta;
+  uint32_t reg = address + (uint32_t)delta;
+  /* A step shorter than the window wraps at most once. */
+  if (delta != 0 && magnitude <= bufmask) {
+    if (modulo == bufmask + 1u) {
+      return ((address & ~bufmask) | (reg & bufmask)) & 0xFFFFu;
+    }
+    const int32_t offset = (int32_t)(address & bufmask) + delta;
+    if (offset > (int32_t)m) {
+      reg -= modulo;
+    } else if (offset < 0) {
+      reg += modulo;
+    }
+    return reg & 0xFFFFu;
   }
-  const uint32_t bufmask = bufsize - 1u;
   const uint32_t low = (address | 0x10000u) & ~bufmask;
   const uint32_t high = low + modulo - 1u;
-  const uint32_t magnitude = delta < 0 ? (uint32_t)(-delta) : (uint32_t)delta;
-  uint32_t reg = (address | 0x10000u) + (uint32_t)delta;
+  reg = (address | 0x10000u) + (uint32_t)delta;
   if ((magnitude & bufmask) != 0u) {
     if (reg > high) {
       reg -= modulo;
@@ -44,13 +63,14 @@ static inline uint32_t ifx_agu_step(uint32_t address, int32_t delta, uint32_t m)
 
 /* A 24-bit word as a signed value. */
 static inline int32_t ifx_s24(uint32_t word) {
-  return (int32_t)((word & 0xFFFFFFu) ^ 0x800000u) - 0x800000;
+  // cppcheck-suppress shiftNegativeLHS -- DSP ASR, defined by GCC/Clang
+  return (int32_t)(word << 8) >> 8;
 }
 
 /* Wrap into the signed 56-bit accumulator range. */
 static inline int64_t ifx_acc56(int64_t value) {
-  return (int64_t)(((uint64_t)value + 0x80000000000000ULL) & 0xFFFFFFFFFFFFFFULL) -
-         0x80000000000000LL;
+  // cppcheck-suppress shiftNegativeLHS -- DSP ASR, defined by GCC/Clang
+  return (int64_t)((uint64_t)value << 8) >> 8;
 }
 
 /* Floor division by 2^24: the accumulator's A1 field. */
@@ -70,21 +90,22 @@ static inline int64_t ifx_round24(int64_t value) {
   return biased & ~0xFFFFFFLL;
 }
 
-/* MPY, MPYR, MAC and MACR. The instruction's sign is carried by the operand. */
-static inline int64_t ifx_mpy(int32_t s1, int32_t s2) {
-  return ifx_acc56(2 * (int64_t)s1 * (int64_t)s2);
-}
+/* The product of two words, as MPY and MAC add it. The 56-bit wrap is modular,
+ * so a run of MACs may sum products and wrap once, where the last one rounds
+ * or stores. */
+static inline int64_t ifx_product(int32_t s1, int32_t s2) { return 2 * (int64_t)s1 * (int64_t)s2; }
 
-static inline int64_t ifx_mpyr(int32_t s1, int32_t s2) {
-  return ifx_round24(2 * (int64_t)s1 * (int64_t)s2);
-}
+/* MPY, MPYR, MAC and MACR. The instruction's sign is carried by the operand. */
+static inline int64_t ifx_mpy(int32_t s1, int32_t s2) { return ifx_acc56(ifx_product(s1, s2)); }
+
+static inline int64_t ifx_mpyr(int32_t s1, int32_t s2) { return ifx_round24(ifx_product(s1, s2)); }
 
 static inline int64_t ifx_mac(int64_t acc, int32_t s1, int32_t s2) {
-  return ifx_acc56(acc + 2 * (int64_t)s1 * (int64_t)s2);
+  return ifx_acc56(acc + ifx_product(s1, s2));
 }
 
 static inline int64_t ifx_macr(int64_t acc, int32_t s1, int32_t s2) {
-  return ifx_round24(ifx_acc56(acc + 2 * (int64_t)s1 * (int64_t)s2));
+  return ifx_round24(ifx_acc56(acc + ifx_product(s1, s2)));
 }
 
 /* ADD and SUB of two accumulators, in mathematical order. */
@@ -129,22 +150,19 @@ static inline int64_t ifx_asr_n(int64_t acc, unsigned n) {
 /* LSL and LSR shift only the A1 field; the extension and low word keep their
  * bits. */
 static inline int64_t ifx_lsl_a1(int64_t acc) {
-  uint64_t u = (uint64_t)acc & 0xFFFFFFFFFFFFFFULL;
-  uint64_t a1 = ((u >> 24) & 0xFFFFFFu) << 1;
-  return ifx_acc56((int64_t)((u & 0xFF000000FFFFFFULL) | ((a1 & 0xFFFFFFu) << 24)));
+  const uint64_t u = (uint64_t)ifx_acc56(acc);
+  return (int64_t)((u & ~IFX_A1_FIELD) | (((u & IFX_A1_FIELD) << 1) & IFX_A1_FIELD));
 }
 
 static inline int64_t ifx_lsr_a1(int64_t acc) {
-  uint64_t u = (uint64_t)acc & 0xFFFFFFFFFFFFFFULL;
-  uint64_t a1 = (u >> 24) & 0xFFFFFFu;
-  return ifx_acc56((int64_t)((u & 0xFF000000FFFFFFULL) | ((a1 >> 1) << 24)));
+  const uint64_t u = (uint64_t)ifx_acc56(acc);
+  return (int64_t)((u & ~IFX_A1_FIELD) | ((u & IFX_A1_FIELD) >> 1 & IFX_A1_FIELD));
 }
 
 /* AND with a 24-bit operand masks the A1 field only. */
 static inline int64_t ifx_and_a1(int64_t acc, int32_t word) {
-  uint64_t u = (uint64_t)acc & 0xFFFFFFFFFFFFFFULL;
-  uint64_t a1 = ((u >> 24) & (uint32_t)word & 0xFFFFFFu) << 24;
-  return ifx_acc56((int64_t)((u & 0xFF000000FFFFFFULL) | a1));
+  const uint64_t keep = ~IFX_A1_FIELD | ((uint64_t)((uint32_t)word & 0xFFFFFFu) << 24);
+  return (int64_t)((uint64_t)ifx_acc56(acc) & keep);
 }
 
 /* ABS and NEG wrap the 56-bit accumulator; the most negative value stays put. */
@@ -163,9 +181,9 @@ static inline int32_t ifx_a0(int64_t acc) { return (int32_t)((uint64_t)acc & 0xF
 static inline int32_t ifx_a2(int64_t acc) { return (int32_t)(((uint64_t)acc >> 48) & 0xFFu); }
 
 /* `move a1,x0` and `move a0,x0`: the field as a signed word, never limited. */
-static inline int32_t ifx_move_a1(int64_t acc) { return ifx_s24((uint32_t)ifx_a1(acc)); }
+static inline int32_t ifx_move_a1(int64_t acc) { return ifx_s24((uint32_t)((uint64_t)acc >> 24)); }
 
-static inline int32_t ifx_move_a0(int64_t acc) { return ifx_s24((uint32_t)ifx_a0(acc)); }
+static inline int32_t ifx_move_a0(int64_t acc) { return ifx_s24((uint32_t)acc); }
 
 /* A move into one field of an accumulator; the other fields keep their bits. */
 static inline int64_t ifx_set_a2(int64_t acc, int32_t word) {
@@ -173,13 +191,13 @@ static inline int64_t ifx_set_a2(int64_t acc, int32_t word) {
 }
 
 static inline int64_t ifx_set_a1(int64_t acc, int32_t word) {
-  const uint64_t u = (uint64_t)acc & 0xFF000000FFFFFFULL;
-  return ifx_acc56((int64_t)(u | ((uint64_t)(uint32_t)(word & 0xFFFFFF) << 24)));
+  const uint64_t u = (uint64_t)ifx_acc56(acc) & ~IFX_A1_FIELD;
+  return (int64_t)(u | ((uint64_t)((uint32_t)word & 0xFFFFFFu) << 24));
 }
 
 static inline int64_t ifx_set_a0(int64_t acc, int32_t word) {
-  const uint64_t u = (uint64_t)acc & 0xFFFFFFFF000000ULL;
-  return ifx_acc56((int64_t)(u | (uint32_t)(word & 0xFFFFFF)));
+  const uint64_t u = (uint64_t)ifx_acc56(acc) & ~0xFFFFFFULL;
+  return (int64_t)(u | ((uint32_t)word & 0xFFFFFFu));
 }
 
 /* A move out of an accumulator with its extension in use limits to the 24-bit

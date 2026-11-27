@@ -7,8 +7,6 @@
 enum {
   HISTORY_BASE = 0x40,
   HISTORY_M = IFX_REGEN_CORE_HISTORY_WORDS - 1u,
-  TAP16_BASE = 0x30,
-  TAP16_M = 0x0F,
   TAP6_BASE = 0x38,
   TAP6_M = 0x05,
   FILTER6_M = 0x1FFF,
@@ -35,30 +33,19 @@ static const uint32_t k_lfo[32] = {
 };
 
 /* P:$010A: the 16-tap filter over the history into the filter ring, each
- * output with the raw centre word before it. */
+ * output with the raw centre word before it. The coefficient pointer turns
+ * once an output, so tap k always meets the word k samples back. */
 static void filter16(ifx_chorus_core_state *state, const ifx_chorus_core_layout *layout,
                      int32_t memory[0x10000]) {
   uint32_t r1 = state->history_write;
-  uint32_t r4 = TAP16_BASE;
   uint32_t r5 = state->filter_write;
   for (unsigned out = 0; out < IFX_BLOCK_FRAMES; out++) {
     int64_t a = 0;
-    int32_t x0 = state->history[r1 & HISTORY_M];
-    r1 = ifx_agu_step(r1, -1, HISTORY_M);
-    int32_t y0 = ifx_s24(k_tap16[r4 & TAP16_M]);
-    r4 = ifx_agu_step(r4, 1, TAP16_M);
     for (unsigned tap = 0; tap < 15u; tap++) {
-      a = ifx_mac(a, y0, x0);
-      x0 = state->history[r1 & HISTORY_M];
-      r1 = ifx_agu_step(r1, -1, HISTORY_M);
-      y0 = ifx_s24(k_tap16[r4 & TAP16_M]);
-      r4 = ifx_agu_step(r4, 1, TAP16_M);
+      a += ifx_product(ifx_s24(k_tap16[tap]), state->history[(r1 - tap) & HISTORY_M]);
     }
-    a = ifx_macr(a, y0, x0);
-    r1 = ifx_agu_step(r1, 8, HISTORY_M);
-    const int32_t centre = state->history[r1 & HISTORY_M];
-    r1 = ifx_agu_step(r1, 8, HISTORY_M);
-    memory[r5] = centre;
+    a = ifx_macr(a, ifx_s24(k_tap16[15]), state->history[(r1 - 15u) & HISTORY_M]);
+    memory[r5] = state->history[(r1 - 8u) & HISTORY_M];
     r5 = ifx_agu_step(r5, layout->filter_stride, layout->filter_m);
     memory[r5] = ifx_store24(a);
     r5 = ifx_agu_step(r5, layout->filter_stride, layout->filter_m);

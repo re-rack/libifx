@@ -83,15 +83,15 @@ void ifx_reverb_net_core_damped(int32_t *table, int32_t memory[0x10000],
     x0 = memory[r2];
     r2 = ifx_agu_step(r2, 1, m);
     a = ifx_macr(a, -x0, gain);
+    /* The 56-bit sum wraps modulo 2^56, so the feedback product can go last. */
     for (unsigned i = 1u; i < IFX_BLOCK_FRAMES; i++) {
       const int32_t previous = ifx_store24(a);
       memory[r5] = previous;
       r5 = ifx_agu_step(r5, 1, m);
-      a = ifx_mpy(gain, block[i]);
-      a = ifx_mac(a, damp, previous);
       x0 = memory[r2];
       r2 = ifx_agu_step(r2, 1, m);
-      a = ifx_macr(a, -x0, gain);
+      a = ifx_mac(ifx_mpy(gain, block[i]), -x0, gain);
+      a = ifx_macr(a, damp, previous);
     }
     memory[r5] = ifx_store24(a);
     pair[0] = (int32_t)r2;

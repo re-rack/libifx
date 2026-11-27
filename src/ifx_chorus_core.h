@@ -15,7 +15,9 @@
 
 #define IFX_CHORUS_CORE_MAX_VOICES 8u
 
-/* Where the two configurations' copies of the network differ. */
+/* Where the two configurations' copies of the network differ. The kernels
+ * step both rings with a mask, so each M is 2^k - 1, and the sweep window
+ * divides $2000. */
 typedef struct {
   unsigned voices;
   int32_t phase_step;     /* each voice's initial sweep phase */

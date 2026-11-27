@@ -30,12 +30,13 @@ static const int32_t k_lfo[32] = {
 
 /* P:$010A: the 16-tap filter over the history into the filter ring, each
  * output with the raw centre word before it. The coefficient pointer turns
- * once an output, so tap k always meets the word k samples back. */
+ * once an output, so tap k always meets the word k samples back, and the
+ * table is symmetric, so taps k and 15-k share a coefficient. */
 static void filter16(ifx_chorus_core_state *state, const ifx_chorus_core_layout *layout,
                      int32_t memory[0x10000]) {
   uint32_t r1 = state->history_write;
   uint32_t r5 = state->filter_write;
-  /* The filter ring is a power-of-two window, so its mask is the modulo. */
+  /* The ring is a power-of-two window, so its mask is the modulo. */
   const uint32_t m = layout->filter_m;
   const uint32_t stride = (uint32_t)layout->filter_stride;
   for (unsigned out = 0; out < IFX_BLOCK_FRAMES; out++) {
@@ -56,7 +57,8 @@ static void filter16(ifx_chorus_core_state *state, const ifx_chorus_core_layout 
   state->history_write = r1;
 }
 
-/* P:$011E: configuration 4's 6-tap filter over every other word of the ring. */
+/* P:$011E: configuration 4's 6-tap filter over every other word of the ring.
+ * The table is symmetric, so taps k and 5-k share a coefficient. */
 static void filter6(ifx_chorus_core_state *state, int32_t memory[0x10000]) {
   uint32_t r3 = state->filter_read;
   uint32_t r5 = state->filter2_write;
@@ -113,8 +115,8 @@ static void sweep_voice(const ifx_chorus_core_state *state, const ifx_chorus_cor
   const uint32_t step_high = (uint32_t)ifx_a2(a);
   uint32_t index = (uint32_t)phase[0] & 0xFFFFFFu;
   uint32_t low = (uint32_t)phase[1] & 0xFFFFFFu;
+  /* The ring is a power-of-two window, so its mask is the modulo. */
   const uint32_t m = layout->sweep_m;
-  /* The sweep ring is a power-of-two window, so its mask is the modulo. */
   for (unsigned i = 0; i < IFX_BLOCK_FRAMES; i++) {
     low += step_low;
     index = (index + step_high + (low >> 24)) & m;

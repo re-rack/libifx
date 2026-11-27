@@ -12,12 +12,12 @@ enum {
   WINDOW_TOP = 0x800000,
 };
 
-static const uint32_t k_tap16[16] = {
-    0xFF9E7A, 0x00D100, 0xFE80CE, 0x02883A, 0xFBDC5F, 0x06DF72, 0xF33748, 0x2878F6,
-    0x2878F6, 0xF33748, 0x06DF72, 0xFBDC5F, 0x02883A, 0xFE80CE, 0x00D100, 0xFF9E7A,
+static const int32_t k_tap16[16] = {
+    -0x6186,  0xD100,   -0x17F32, 0x2883A,  -0x423A1, 0x6DF72,  -0xCC8B8, 0x2878F6,
+    0x2878F6, -0xCC8B8, 0x6DF72,  -0x423A1, 0x2883A,  -0x17F32, 0xD100,   -0x6186,
 };
 
-static const uint32_t k_tap6[6] = {0x02B57B, 0xF07752, 0x4CD3AE, 0x4CD3AE, 0xF07752, 0x02B57B};
+static const int32_t k_tap6[6] = {0x2B57B, -0xF88AE, 0x4CD3AE, 0x4CD3AE, -0xF88AE, 0x2B57B};
 
 /* The 256-word crossfade window: a squared rise to 0.5, then mirrored up to 1.0. */
 static void build_window(int32_t memory[0x10000], uint32_t base) {
@@ -43,14 +43,12 @@ static void filter16(ifx_pitch_core_state *state, const ifx_pitch_core_layout *l
   const uint32_t m6 = layout->six_tap != 0 ? layout->filter1_m : layout->filter2_m;
   for (unsigned out = 0; out < IFX_BLOCK_FRAMES; out++) {
     int64_t a = ifx_asr(ifx_word_acc(state->history[(r1 - 15u) & HISTORY_M]));
-    unsigned lo = (r1 - 30u) & HISTORY_M;
-    unsigned hi = r1 & HISTORY_M;
     for (unsigned tap = 0; tap < 7u; tap++) {
-      a += ifx_product(ifx_s24(k_tap16[tap]), state->history[lo] + state->history[hi]);
-      lo = (lo + 2u) & HISTORY_M;
-      hi = (hi - 2u) & HISTORY_M;
+      a += ifx_product(k_tap16[tap], state->history[(r1 - 30u + 2u * tap) & HISTORY_M] +
+                                         state->history[(r1 - 2u * tap) & HISTORY_M]);
     }
-    a = ifx_macr(a, ifx_s24(k_tap16[7]), state->history[lo] + state->history[hi]);
+    a = ifx_macr(a, k_tap16[7],
+                 state->history[(r1 - 16u) & HISTORY_M] + state->history[(r1 - 14u) & HISTORY_M]);
     memory[r6] = ifx_store24(a);
     r6 = ifx_agu_step(r6, 1, m6);
     r1 = ifx_agu_step(r1, 1, HISTORY_M);
@@ -74,14 +72,12 @@ static void filter6(ifx_pitch_core_state *state, const ifx_pitch_core_layout *la
   uint32_t r5 = state->filter1_write & m1;
   uint32_t r6 = state->filter2_write & layout->filter2_m;
   for (unsigned out = 0; out < IFX_BLOCK_FRAMES; out++) {
-    int64_t a =
-        ifx_product(ifx_s24(k_tap6[0]), memory[base1 + r5] + memory[base1 + ((r5 - 5u) & m1)]);
-    a += ifx_product(ifx_s24(k_tap6[1]),
-                     memory[base1 + ((r5 - 1u) & m1)] + memory[base1 + ((r5 - 4u) & m1)]);
+    int64_t a = ifx_product(k_tap6[0], memory[base1 + r5] + memory[base1 + ((r5 - 5u) & m1)]);
+    a +=
+        ifx_product(k_tap6[1], memory[base1 + ((r5 - 1u) & m1)] + memory[base1 + ((r5 - 4u) & m1)]);
     memory[base2 + r6] = memory[base1 + ((r5 - 3u) & m1)];
     r6 = (r6 + 1u) & layout->filter2_m;
-    a = ifx_macr(a, ifx_s24(k_tap6[2]),
-                 memory[base1 + ((r5 - 2u) & m1)] + memory[base1 + ((r5 - 3u) & m1)]);
+    a = ifx_macr(a, k_tap6[2], memory[base1 + ((r5 - 2u) & m1)] + memory[base1 + ((r5 - 3u) & m1)]);
     memory[base2 + r6] = ifx_store24(a);
     r6 = (r6 + 1u) & layout->filter2_m;
     r5 = (r5 + 1u) & m1;

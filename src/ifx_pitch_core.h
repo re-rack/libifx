@@ -16,7 +16,9 @@
 
 #define IFX_PITCH_CORE_MAX_VOICES 4u
 
-/* Where the two configurations' copies of the network differ. */
+/* Where the two configurations' copies of the network differ. The kernels
+ * index both rings from their base with a mask, so each M is 2^k - 1, each
+ * base a multiple of M + 1, and filter2_m the grain phase's mask. */
 typedef struct {
   unsigned voices;
   unsigned phase_bits;   /* the grain phase's integer width: 12 or 13 */

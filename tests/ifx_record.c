@@ -94,18 +94,18 @@ static int record_tables(ifx_fixture_writer *writer, const ifx_emu *emu) {
     fclose(file);
     return -1;
   }
-  uint8_t bytes[IFX_WINDOW_TABLE_WORDS];
+  uint8_t bytes[IFX_EMU_PARAMETER_COUNT];
   int ok = fread(bytes, 1, sizeof bytes, file) == sizeof bytes;
   fclose(file);
   if (!ok) {
     fprintf(stderr, "tables: %s ends before the parameter window table\n", path);
     return -1;
   }
-  int32_t window[IFX_WINDOW_TABLE_WORDS];
-  for (unsigned i = 0; i < IFX_WINDOW_TABLE_WORDS; i++) {
+  int32_t window[IFX_EMU_PARAMETER_COUNT];
+  for (unsigned i = 0; i < IFX_EMU_PARAMETER_COUNT; i++) {
     window[i] = bytes[i];
   }
-  return add_table(writer, "ifx_window_table", &first, window, IFX_WINDOW_TABLE_WORDS);
+  return add_table(writer, "mcu_window_table", &first, window, IFX_EMU_PARAMETER_COUNT);
 }
 
 static int vector_present(const int32_t *vectors, unsigned count, unsigned knobs,
@@ -238,7 +238,7 @@ static int record_effect(const ifx_firmware_ops *ops, const char *path) {
   ifx_segment *segment = NULL;
   ifx_fixture_writer writer;
   int writer_open = 0;
-  void *firmware = ops->open();
+  void *firmware = ifx_firmware_open(ops);
   if (firmware == NULL) {
     return -1;
   }
@@ -280,13 +280,14 @@ static int record_effect(const ifx_firmware_ops *ops, const char *path) {
   for (unsigned vector = 0; vector < count; vector++) {
     const int32_t *want = vectors + (size_t)vector * knobs;
     for (unsigned knob = 0; knob < knobs; knob++) {
-      if (want[knob] != values[knob] && ops->set_knob(firmware, knob, (int)want[knob]) != 0) {
+      if (want[knob] != values[knob] &&
+          ifx_firmware_set_knob(firmware, knob, (int)want[knob]) != 0) {
         goto fail;
       }
       values[knob] = want[knob];
     }
     ifx_fixture_put_i32(record, knobs, want);
-    if (ops->words(firmware, values + knobs) != 0) {
+    if (ifx_firmware_words(firmware, values + knobs) != 0) {
       goto fail;
     }
     ifx_fixture_put_i32(record + 4u * knobs, effect->setup_words, values + knobs);
@@ -297,18 +298,18 @@ static int record_effect(const ifx_firmware_ops *ops, const char *path) {
     setup_count++;
   }
 
-  const char *eprom = ops->eprom_path(firmware);
+  const char *eprom = ifx_firmware_eprom_path(firmware);
   for (unsigned preset = PRESET_FIRST; preset <= PRESET_LAST; preset++) {
     uint8_t bytes[IFX_EMU_PARAMETER_COUNT];
     int32_t preset_knobs[64];
     if (preset_values(effect, ops->config, eprom, preset, preset_knobs, bytes) != 0) {
       continue;
     }
-    if (ops->load(firmware, bytes) != 0) {
+    if (ifx_firmware_load(firmware, bytes) != 0) {
       goto fail;
     }
     ifx_fixture_put_i32(record, knobs, preset_knobs);
-    if (ops->words(firmware, values + knobs) != 0) {
+    if (ifx_firmware_words(firmware, values + knobs) != 0) {
       goto fail;
     }
     ifx_fixture_put_i32(record + 4u * knobs, effect->setup_words, values + knobs);
@@ -319,8 +320,8 @@ static int record_effect(const ifx_firmware_ops *ops, const char *path) {
     setup_count++;
   }
 
-  ops->close(firmware);
-  firmware = ops->open();
+  ifx_firmware_close(firmware);
+  firmware = ifx_firmware_open(ops);
   if (firmware == NULL) {
     goto fail;
   }
@@ -360,7 +361,8 @@ static int record_effect(const ifx_firmware_ops *ops, const char *path) {
   for (unsigned index = 0; index < segments; index++) {
     ifx_effect_values(effect, &segment[index], values);
     for (unsigned knob = 0; knob < knobs; knob++) {
-      if (values[knob] != current[knob] && ops->set_knob(firmware, knob, (int)values[knob]) != 0) {
+      if (values[knob] != current[knob] &&
+          ifx_firmware_set_knob(firmware, knob, (int)values[knob]) != 0) {
         goto audio_fail;
       }
     }
@@ -373,7 +375,7 @@ static int record_effect(const ifx_firmware_ops *ops, const char *path) {
          frame++) {
       int32_t left = 0;
       int32_t right = 0;
-      if (ops->frame(firmware, input[at], &left, &right) != 0) {
+      if (ifx_firmware_frame(firmware, input[at], &left, &right) != 0) {
         goto audio_fail;
       }
       device_left[at] = left;
@@ -398,7 +400,7 @@ static int record_effect(const ifx_firmware_ops *ops, const char *path) {
   }
   printf("%-15s recorded %u settings, %u segments, %lu frames to %s\n", effect->name, setup_count,
          segments, frames, path);
-  ops->close(firmware);
+  ifx_firmware_close(firmware);
   free(values);
   free(vectors);
   free(record);
@@ -418,19 +420,16 @@ fail:
   free(record);
   free(segment);
   if (firmware != NULL) {
-    ops->close(firmware);
+    ifx_firmware_close(firmware);
   }
   return -1;
 }
 
 int main(int argc, char **argv) {
   if (argc == 2 && strcmp(argv[1], "--list") == 0) {
-    puts("delay");
-    puts("chorus8");
-    puts("pitch");
-    puts("reverb");
-    puts("chorus_reverb");
-    puts("pitch_reverb");
+#define IFX_LIST(name) puts(#name);
+    IFX_EFFECTS(IFX_LIST)
+#undef IFX_LIST
     puts("tables");
     return 0;
   }
@@ -467,14 +466,16 @@ int main(int argc, char **argv) {
                IFX_HUSH_SLOPE_TABLE_WORDS + IFX_HUSH_RELEASE_TABLE_WORDS +
                IFX_DUCKER_RELEASE_TABLE_WORDS + IFX_GATE_DECAY_TABLE_WORDS +
                IFX_GATE_HOLD_TABLE_WORDS + IFX_COARSE_PITCH_TABLE_WORDS +
-               IFX_FINE_PITCH_TABLE_WORDS + IFX_WINDOW_TABLE_WORDS +
+               IFX_FINE_PITCH_TABLE_WORDS + IFX_EMU_PARAMETER_COUNT +
                IFX_REVERB_TYPE_COUNT * IFX_REVERB_TYPE_TABLE_WORDS,
            argv[2]);
     return 0;
   }
   const ifx_firmware_ops *firmware_ops[] = {
-      ifx_firmware_delay(),  ifx_firmware_chorus8(),       ifx_firmware_pitch(),
-      ifx_firmware_reverb(), ifx_firmware_chorus_reverb(), ifx_firmware_pitch_reverb()};
+#define IFX_FIRMWARE_POINTER(name) &ifx_firmware_##name,
+      IFX_EFFECTS(IFX_FIRMWARE_POINTER)
+#undef IFX_FIRMWARE_POINTER
+  };
   for (unsigned i = 0; i < sizeof firmware_ops / sizeof firmware_ops[0]; i++) {
     if (strcmp(argv[1], firmware_ops[i]->effect->name) == 0) {
       return record_effect(firmware_ops[i], argv[2]) == 0 ? 0 : 1;

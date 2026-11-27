@@ -3,43 +3,42 @@
 #include "ifx_pitch_reverb_setup.h"
 
 #define PITCH_REVERB_KNOBS 34u
-#define PITCH_REVERB_SETUP_WORDS IFX_PITCH_REVERB_COEF_COUNT
 
 static const ifx_effect_knob k_knobs[PITCH_REVERB_KNOBS] = {
-    {"EFFECTS LVL", 0, 58, 46, 0, 58, 0},
-    {"L DIR LVL", 0, 58, 46, 0, 30, 0},
-    {"R DIR LVL", 0, 58, 46, 0, 30, 0},
-    {"DIRECT HUSH", 0, 1, 0, 0, 1, 0},
-    {"PSHIFT LVL", 0, 58, 58, 0, 58, 0},
-    {"DELAY LVL", 0, 58, 58, 0, 58, 0},
-    {"REVERB LVL", 0, 58, 48, 0, 58, 0},
-    {"REGEN L", 0, 58, 0, 0, 58, 0},
-    {"REGEN R", 0, 58, 0, 0, 58, 0},
-    {"HUSH I/O", 0, 1, 1, 0, 1, 0},
-    {"EXP THRESH", 0, 24, 8, 0, 20, 0},
-    {"REL RATE", 0, 9, 5, 0, 5, 0},
-    {"PITCH 1", 0, 180, 60, 0, 0, 0},
-    {"FINE 1", 0, 40, 20, 0, 0, 0},
-    {"LEVEL 1", 0, 58, 54, 0, 58, 0},
-    {"PAN 1", 0, 100, 22, 0, 25, 0},
-    {"DELAY 1", 0, 209, 1, IFX_EFFECT_HOLD, 4, 0},
-    {"PITCH 2", 0, 180, 120, 0, 180, 0},
-    {"FINE 2", 0, 40, 36, 0, 40, 0},
-    {"LEVEL 2", 0, 58, 54, 0, 58, 0},
-    {"PAN 2", 0, 100, 84, 0, 75, 0},
-    {"DELAY 2", 0, 209, 1, IFX_EFFECT_HOLD, 8, 0},
-    {"LEVEL 3", 0, 58, 31, 0, 58, 0},
-    {"PAN 3", 0, 100, 81, 0, 50, 0},
-    {"DELAY 3", 0, 209, 160, IFX_EFFECT_HOLD, 209, 0},
-    {"DUCKER", 0, 3, 0, 0, 3, 1},
-    {"SENSITIVITY", 0, 24, 0, 0, 16, 0},
-    {"ATTENUATION", 0, 58, 58, 0, 30, 0},
-    {"RELEASE RATE", 0, 19, 0, 0, 8, 0},
-    {"REV INPUT", 0, 1, 1, 0, 1, 0},
-    {"DIR IN PAN", 0, 100, 50, 0, 50, 0},
-    {"MIX DIR/DLY", 0, 100, 50, 0, 50, 0},
-    {"REV DECAY", 0, 99, 66, 0, 99, 0},
-    {"RV HF DAMP", 0, 99, 18, 0, 20, 0},
+    {"EFFECTS LVL", 0, 58, 46, 0, 58, 0, 2},
+    {"L DIR LVL", 0, 58, 46, 0, 30, 0, 3},
+    {"R DIR LVL", 0, 58, 46, 0, 30, 0, 4},
+    {"DIRECT HUSH", 0, 1, 0, 0, 1, 0, 5},
+    {"PSHIFT LVL", 0, 58, 58, 0, 58, 0, 45},
+    {"DELAY LVL", 0, 58, 58, 0, 58, 0, 7},
+    {"REVERB LVL", 0, 58, 48, 0, 58, 0, 8},
+    {"REGEN L", 0, 58, 0, 0, 58, 0, 97},
+    {"REGEN R", 0, 58, 0, 0, 58, 0, 98},
+    {"HUSH I/O", 0, 1, 1, 0, 1, 0, 9},
+    {"EXP THRESH", 0, 24, 8, 0, 20, 0, 10},
+    {"REL RATE", 0, 9, 5, 0, 5, 0, 11},
+    {"PITCH 1", 0, 180, 60, 0, 0, 0, 46},
+    {"FINE 1", 0, 40, 20, 0, 0, 0, 47},
+    {"LEVEL 1", 0, 58, 54, 0, 58, 0, 63},
+    {"PAN 1", 0, 100, 22, 0, 25, 0, 15},
+    {"DELAY 1", 0, 209, 1, IFX_EFFECT_HOLD, 4, 0, 64},
+    {"PITCH 2", 0, 180, 120, 0, 180, 0, 48},
+    {"FINE 2", 0, 40, 36, 0, 40, 0, 49},
+    {"LEVEL 2", 0, 58, 54, 0, 58, 0, 65},
+    {"PAN 2", 0, 100, 84, 0, 75, 0, 20},
+    {"DELAY 2", 0, 209, 1, IFX_EFFECT_HOLD, 8, 0, 66},
+    {"LEVEL 3", 0, 58, 31, 0, 58, 0, 67},
+    {"PAN 3", 0, 100, 81, 0, 50, 0, 68},
+    {"DELAY 3", 0, 209, 160, IFX_EFFECT_HOLD, 209, 0, 69},
+    {"DUCKER", 0, 3, 0, 0, 3, 1, 16},
+    {"SENSITIVITY", 0, 24, 0, 0, 16, 0, 36},
+    {"ATTENUATION", 0, 58, 58, 0, 30, 0, 37},
+    {"RELEASE RATE", 0, 19, 0, 0, 8, 0, 38},
+    {"REV INPUT", 0, 1, 1, 0, 1, 0, 107},
+    {"DIR IN PAN", 0, 100, 50, 0, 50, 0, 56},
+    {"MIX DIR/DLY", 0, 100, 50, 0, 50, 0, 39},
+    {"REV DECAY", 0, 99, 66, 0, 99, 0, 42},
+    {"RV HF DAMP", 0, 99, 18, 0, 20, 0, 43},
 };
 
 static void pitch_reverb_raw(const int32_t *values, ifx_pitch_reverb_setup_raw *raw) {
@@ -81,14 +80,8 @@ static void pitch_reverb_raw(const int32_t *values, ifx_pitch_reverb_setup_raw *
   };
 }
 
-static void pitch_reverb_words(const ifx_pitch_reverb_config *config, int32_t *words) {
-  for (unsigned word = 0; word < IFX_PITCH_REVERB_COEF_COUNT; word++) {
-    words[word] = config->coef[word];
-  }
-}
-
-/* The grain sweeps need fast pitch jumps into the phase re-sync, the delay
- * voice its zero and maximum, and the limiter sums at its threshold. */
+/* Fast pitch jumps into the phase re-sync, the delay voice at its zero and
+ * maximum, and the limiter sums at their threshold. */
 static const ifx_effect_extra k_extra[] = {
     {12, 180, 64}, {17, 0, 64},   {12, 0, 64},  {17, 180, 64}, {12, 60, 64},  {17, 120, 64},
     {24, 0, 64},   {24, 209, 64}, {16, 0, 64},  {21, 0, 64},   {16, 209, 64}, {21, 209, 64},
@@ -98,5 +91,5 @@ static const ifx_effect_extra k_extra[] = {
     {8, 50, 1024},
 };
 
-IFX_EFFECT_DEFINE(pitch_reverb, pitch_reverb, k_knobs, pitch_reverb_raw, pitch_reverb_words,
-                  PITCH_REVERB_SETUP_WORDS, k_extra, sizeof k_extra / sizeof k_extra[0])
+IFX_EFFECT_DEFINE(pitch_reverb, pitch_reverb, k_knobs, pitch_reverb_raw, k_extra,
+                  sizeof k_extra / sizeof k_extra[0])

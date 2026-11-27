@@ -1,5 +1,4 @@
-/* The shared image's lookup tables and the MCU's parameter window table,
- * word for word as the firmware holds them. */
+/* The shared image's lookup tables, word for word as the firmware holds them. */
 #ifndef IFX_TABLES_H
 #define IFX_TABLES_H
 
@@ -15,7 +14,6 @@
 #define IFX_GATE_HOLD_TABLE_WORDS 100u
 #define IFX_COARSE_PITCH_TABLE_WORDS 181u
 #define IFX_FINE_PITCH_TABLE_WORDS 41u
-#define IFX_WINDOW_TABLE_WORDS 108u
 #define IFX_REVERB_TYPE_COUNT 8u
 #define IFX_REVERB_TYPE_TABLE_WORDS 48u
 
@@ -48,9 +46,6 @@ extern const int32_t ifx_coarse_pitch_table[IFX_COARSE_PITCH_TABLE_WORDS];
 
 /* P:$09E7..$0A0F: 0.5 * 2^((k - 20)/1200), fine pitch in cents. */
 extern const int32_t ifx_fine_pitch_table[IFX_FINE_PITCH_TABLE_WORDS];
-
-/* EPROM 0x12C8..0x1333: each parameter's exclusive maximum, read by C:12BF. */
-extern const uint8_t ifx_window_table[IFX_WINDOW_TABLE_WORDS];
 
 /* Configuration 2 P:$0172..$02F1: the eight types' 48-word pointer and
  * coefficient tables, copied to X:$40..$6F by the configuration's init. */

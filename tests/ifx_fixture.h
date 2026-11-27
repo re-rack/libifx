@@ -7,10 +7,12 @@
 #ifndef IFX_FIXTURE_H
 #define IFX_FIXTURE_H
 
+#include "ifx_base.h"
+
 #include <stddef.h>
 #include <stdint.h>
 
-#define IFX_FIXTURE_RATE 39000u
+#define IFX_FIXTURE_RATE ((uint32_t)IFX_DEVICE_RATE)
 #define IFX_FIX_TABLE_NAME 32u
 #define IFX_FIX_TABLE_INDEX_SIZE 40u
 #define IFX_FIX_TABLE_WORDS_SIZE 4u

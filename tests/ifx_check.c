@@ -1,7 +1,7 @@
 /* The checker: replays the recorded firmware answers through the native library,
  * offline, and checks the host-facing pieces the firmware has no answer for.
- * Prints one PASS or FAIL line per item, at most five detail lines per item, and
- * exits non-zero when anything failed. */
+ * Prints one PASS or FAIL line per item, at most DETAIL_MAX detail lines per
+ * item, and exits non-zero when anything failed. */
 #include "ifx.h"
 #include "ifx_dsp_math.h"
 #include "ifx_effect.h"
@@ -20,6 +20,10 @@
 #define FIXTURE_DIR "tests/fixtures"
 #define DETAIL_MAX 500u
 #define HOST_FRAMES 4096u
+
+#define IFX_EFFECT_POINTER(name) &ifx_effect_##name,
+static const ifx_effect *const k_effects[] = {IFX_EFFECTS(IFX_EFFECT_POINTER)};
+#undef IFX_EFFECT_POINTER
 
 static unsigned item_failures;
 static unsigned item_shown;
@@ -56,34 +60,25 @@ static uint32_t next_random(uint32_t *state) {
 typedef struct {
   const char *name;
   const int32_t *words;
-  const uint8_t *bytes;
   uint32_t count;
 } native_table;
 
 static const native_table k_tables[] = {
-    {"ifx_level_table", ifx_level_table, NULL, IFX_LEVEL_TABLE_WORDS},
-    {"ifx_pan_table", ifx_pan_table, NULL, IFX_PAN_TABLE_WORDS},
-    {"ifx_hush_threshold_table", ifx_hush_threshold_table, NULL, IFX_HUSH_THRESHOLD_TABLE_WORDS},
-    {"ifx_hush_slope_table", ifx_hush_slope_table, NULL, IFX_HUSH_SLOPE_TABLE_WORDS},
-    {"ifx_hush_release_table", ifx_hush_release_table, NULL, IFX_HUSH_RELEASE_TABLE_WORDS},
-    {"ifx_ducker_release_table", ifx_ducker_release_table, NULL, IFX_DUCKER_RELEASE_TABLE_WORDS},
-    {"ifx_gate_decay_table", ifx_gate_decay_table, NULL, IFX_GATE_DECAY_TABLE_WORDS},
-    {"ifx_gate_hold_table", ifx_gate_hold_table, NULL, IFX_GATE_HOLD_TABLE_WORDS},
-    {"ifx_coarse_pitch_table", ifx_coarse_pitch_table, NULL, IFX_COARSE_PITCH_TABLE_WORDS},
-    {"ifx_fine_pitch_table", ifx_fine_pitch_table, NULL, IFX_FINE_PITCH_TABLE_WORDS},
-    {"ifx_window_table", NULL, ifx_window_table, IFX_WINDOW_TABLE_WORDS},
-    {"ifx_reverb_type_table", &ifx_reverb_type_table[0][0], NULL,
+    {"ifx_level_table", ifx_level_table, IFX_LEVEL_TABLE_WORDS},
+    {"ifx_pan_table", ifx_pan_table, IFX_PAN_TABLE_WORDS},
+    {"ifx_hush_threshold_table", ifx_hush_threshold_table, IFX_HUSH_THRESHOLD_TABLE_WORDS},
+    {"ifx_hush_slope_table", ifx_hush_slope_table, IFX_HUSH_SLOPE_TABLE_WORDS},
+    {"ifx_hush_release_table", ifx_hush_release_table, IFX_HUSH_RELEASE_TABLE_WORDS},
+    {"ifx_ducker_release_table", ifx_ducker_release_table, IFX_DUCKER_RELEASE_TABLE_WORDS},
+    {"ifx_gate_decay_table", ifx_gate_decay_table, IFX_GATE_DECAY_TABLE_WORDS},
+    {"ifx_gate_hold_table", ifx_gate_hold_table, IFX_GATE_HOLD_TABLE_WORDS},
+    {"ifx_coarse_pitch_table", ifx_coarse_pitch_table, IFX_COARSE_PITCH_TABLE_WORDS},
+    {"ifx_fine_pitch_table", ifx_fine_pitch_table, IFX_FINE_PITCH_TABLE_WORDS},
+    {"ifx_reverb_type_table", &ifx_reverb_type_table[0][0],
      IFX_REVERB_TYPE_COUNT * IFX_REVERB_TYPE_TABLE_WORDS},
 };
 
 #define TABLE_COUNT (sizeof k_tables / sizeof k_tables[0])
-
-static int32_t native_word(const native_table *table, uint32_t index) {
-  if (table->words != NULL) {
-    return table->words[index];
-  }
-  return table->bytes != NULL ? table->bytes[index] : 0;
-}
 
 static const native_table *find_table(const char *name) {
   for (size_t i = 0; i < TABLE_COUNT; i++) {
@@ -94,7 +89,8 @@ static const native_table *find_table(const char *name) {
   return NULL;
 }
 
-/* Every table ifx_tables.c keeps, word for word against the firmware's. */
+/* Every table ifx_tables.c keeps, word for word against the firmware's, and
+ * every effect knob's window against the MCU's parameter table. */
 static unsigned check_tables(void) {
   item_failures = 0;
   item_shown = 0;
@@ -119,10 +115,17 @@ static unsigned check_tables(void) {
   }
   unsigned char seen[TABLE_COUNT];
   memset(seen, 0, sizeof seen);
+  ifx_fixture_table window;
+  int have_window = 0;
   for (uint32_t record = 0; record < index_count; record++) {
     ifx_fixture_table index;
     ifx_fixture_get_table((const unsigned char *)index_records + (size_t)index_size * record,
                           &index);
+    if (strcmp(index.name, "mcu_window_table") == 0) {
+      window = index;
+      have_window = 1;
+      continue;
+    }
     const native_table *table = find_table(index.name);
     if (table == NULL) {
       detail("the fixture holds %s, which the library does not", index.name);
@@ -137,9 +140,9 @@ static unsigned check_tables(void) {
     }
     seen[table - k_tables] = 1;
     for (uint32_t word = 0; word < index.count; word++) {
-      const int32_t want = ifx_fixture_get_word(
-          (const unsigned char *)words + IFX_FIX_TABLE_WORDS_SIZE * (size_t)(index.first + word));
-      const int32_t got = native_word(table, word);
+      const int32_t want = ifx_fixture_get_word((const unsigned char *)words +
+                                                word_size * (size_t)(index.first + word));
+      const int32_t got = table->words[word];
       if (want != got) {
         detail("%s word %u: %06X, firmware %06X", index.name, (unsigned)word,
                (uint32_t)got & 0xFFFFFFu, (uint32_t)want & 0xFFFFFFu);
@@ -160,6 +163,32 @@ static unsigned check_tables(void) {
   if (missing != 0u) {
     detail("the fixture covers %u of the %u tables", matched, (unsigned)TABLE_COUNT);
     failed();
+  }
+
+  if (have_window == 0) {
+    detail("the fixture holds no mcu_window_table");
+    failed();
+  } else {
+    for (unsigned e = 0; e < sizeof k_effects / sizeof k_effects[0]; e++) {
+      const ifx_effect *effect = k_effects[e];
+      for (unsigned knob = 0; knob < effect->knobs; knob++) {
+        const ifx_effect_knob *record = &effect->knob[knob];
+        const uint32_t at = window.first + (uint32_t)record->param;
+        if (record->param < 0 || at >= word_count) {
+          detail("%s %s: parameter %d is outside the window table", effect->name, record->name,
+                 record->param);
+          failed();
+          continue;
+        }
+        const int32_t limit =
+            ifx_fixture_get_word((const unsigned char *)words + word_size * (size_t)at);
+        if (record->min != 0 || record->max + 1 != limit) {
+          detail("%s %s: min %d max %d, window %d", effect->name, record->name, record->min,
+                 record->max, (int)limit);
+          failed();
+        }
+      }
+    }
   }
 
 done:
@@ -770,13 +799,13 @@ static unsigned effect_audio_run(const effect_job *job, audio_mode mode, uint32_
         chunk = end - position;
       }
       const int paired = mode == AUDIO_INTERLEAVED || mode == AUDIO_FRAME;
-      const int32_t high = paired ? 0x5A000000 : 0;
+      const int32_t high = mode == AUDIO_FLOAT ? 0 : 0x5A000000;
       for (size_t frame = 0; frame < chunk; frame++) {
         mono[frame] = job->q23[position + frame] ^ high;
       }
       switch (mode) {
       case AUDIO_SPLIT:
-        effect->split(instance, job->q23 + position, scratch_left, scratch_right, chunk);
+        effect->split(instance, mono, scratch_left, scratch_right, chunk);
         break;
       case AUDIO_FLOAT:
         effect->f32(instance, job->f32 + position, fl, fr, chunk);
@@ -987,10 +1016,6 @@ static void usage(const char *program) {
   fprintf(stderr, "usage: %s [tables] [host]\n", program);
   fprintf(stderr, "  no name: all of them\n");
 }
-
-#define IFX_EFFECT_POINTER(name) &ifx_effect_##name,
-static const ifx_effect *const k_effects[] = {IFX_EFFECTS(IFX_EFFECT_POINTER)};
-#undef IFX_EFFECT_POINTER
 
 int main(int argc, char **argv) {
   unsigned failures = 0;

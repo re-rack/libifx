@@ -3,21 +3,20 @@
 #include "ifx_effect.h"
 
 #define DELAY_KNOBS 23u
-#define DELAY_SETUP_WORDS IFX_DELAY_COEF_COUNT
 
 static const ifx_effect_knob k_knobs[DELAY_KNOBS] = {
-    {"DELAY LVL", 0, 58, 48, 0, 40, 0},   {"L DIR LVL", 0, 58, 46, 0, 40, 0},
-    {"R DIR LVL", 0, 58, 46, 0, 40, 0},   {"DIRECT HUSH", 0, 1, 0, 0, 1, 0},
-    {"HUSH I/O", 0, 1, 1, 0, 1, 0},       {"EXP THRESH", 0, 24, 8, 0, 20, 0},
-    {"REL RATE", 0, 9, 5, 0, 5, 0},       {"DELAY", 0, 1, 1, 0, 1, 0},
-    {"MUTE TYPE", 0, 2, 0, 0, 0, 0},      {"LEVEL 1", 0, 58, 58, 0, 40, 0},
-    {"PAN 1", 0, 100, 0, 0, 0, 0},        {"DLY TIME1", 0, 150, 75, IFX_EFFECT_HOLD, 9, 0},
-    {"REGEN 1", 0, 58, 46, 0, 58, 0},     {"LEVEL 2", 0, 58, 58, 0, 40, 0},
-    {"PAN 2", 0, 100, 100, 0, 100, 0},    {"DLY TIME2", 0, 150, 50, IFX_EFFECT_HOLD, 6, 0},
-    {"REGEN 2", 0, 58, 52, 0, 58, 0},     {"D TYPE", 0, 2, 0, 0, 0, 1},
-    {"DL HF DAMP", 0, 99, 12, 0, 12, 0},  {"DUCKER", 0, 1, 1, 0, 1, 0},
-    {"SENSITIVITY", 0, 24, 20, 0, 16, 0}, {"ATTENUATION", 0, 58, 19, 0, 30, 0},
-    {"RELEASE RATE", 0, 19, 8, 0, 8, 0},
+    {"DELAY LVL", 0, 58, 48, 0, 40, 0, 51},   {"L DIR LVL", 0, 58, 46, 0, 40, 0, 3},
+    {"R DIR LVL", 0, 58, 46, 0, 40, 0, 4},    {"DIRECT HUSH", 0, 1, 0, 0, 1, 0, 5},
+    {"HUSH I/O", 0, 1, 1, 0, 1, 0, 9},        {"EXP THRESH", 0, 24, 8, 0, 20, 0, 10},
+    {"REL RATE", 0, 9, 5, 0, 5, 0, 11},       {"DELAY", 0, 1, 1, 0, 1, 0, 24},
+    {"MUTE TYPE", 0, 2, 0, 0, 0, 0, 25},      {"LEVEL 1", 0, 58, 58, 0, 40, 0, 27},
+    {"PAN 1", 0, 100, 0, 0, 0, 0, 28},        {"DLY TIME1", 0, 150, 75, IFX_EFFECT_HOLD, 9, 0, 29},
+    {"REGEN 1", 0, 58, 46, 0, 58, 0, 30},     {"LEVEL 2", 0, 58, 58, 0, 40, 0, 31},
+    {"PAN 2", 0, 100, 100, 0, 100, 0, 32},    {"DLY TIME2", 0, 150, 50, IFX_EFFECT_HOLD, 6, 0, 33},
+    {"REGEN 2", 0, 58, 52, 0, 58, 0, 34},     {"D TYPE", 0, 2, 0, 0, 0, 1, 35},
+    {"DL HF DAMP", 0, 99, 12, 0, 12, 0, 100}, {"DUCKER", 0, 1, 1, 0, 1, 0, 14},
+    {"SENSITIVITY", 0, 24, 20, 0, 16, 0, 36}, {"ATTENUATION", 0, 58, 19, 0, 30, 0, 37},
+    {"RELEASE RATE", 0, 19, 8, 0, 8, 0, 38},
 };
 
 static void delay_raw(const int32_t *values, ifx_delay_setup_raw *raw) {
@@ -48,27 +47,11 @@ static void delay_raw(const int32_t *values, ifx_delay_setup_raw *raw) {
   };
 }
 
-static void delay_words(const ifx_delay_config *config, int32_t *words) {
-  for (unsigned word = 0; word < IFX_DELAY_COEF_COUNT; word++) {
-    words[word] = config->coef[word];
-  }
-}
-
+/* Hold the lines under signal, then mute the delay under each MUTE TYPE. */
 static const ifx_effect_extra k_extra[] = {
-    {12, 58, 0},   /* REGEN 1 */
-    {16, 58, 0},   /* REGEN 2 */
-    {11, 9, 0},    /* DLY TIME1 */
-    {15, 6, 4096}, /* DLY TIME2 */
-    {8, 1, 0},     /* MUTE TYPE POST */
-    {7, 0, 6000},  /* DELAY muted */
-    {7, 1, 6000},  /* DELAY active */
-    {8, 2, 0},     /* MUTE TYPE BOTH */
-    {7, 0, 6000},  /* DELAY muted */
-    {7, 1, 6000},  /* DELAY active */
-    {8, 0, 0},     /* MUTE TYPE PRE */
-    {7, 0, 6000},  /* DELAY muted */
-    {7, 1, 6000},  /* DELAY active */
+    {12, 58, 0},  {16, 58, 0},  {11, 9, 0},   {15, 6, 4096}, {8, 1, 0},
+    {7, 0, 6000}, {7, 1, 6000}, {8, 2, 0},    {7, 0, 6000},  {7, 1, 6000},
+    {8, 0, 0},    {7, 0, 6000}, {7, 1, 6000},
 };
 
-IFX_EFFECT_DEFINE(delay, delay, k_knobs, delay_raw, delay_words, DELAY_SETUP_WORDS, k_extra,
-                  sizeof k_extra / sizeof k_extra[0])
+IFX_EFFECT_DEFINE(delay, delay, k_knobs, delay_raw, k_extra, sizeof k_extra / sizeof k_extra[0])

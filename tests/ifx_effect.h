@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define IFX_EFFECT_RATE 39000u
 #define IFX_EFFECT_SEGMENT 4096u
 /* Frames a delay-time knob's maximum segment holds: the 2-Tap line's 1,500 ms. */
 #define IFX_EFFECT_HOLD 60000u
@@ -27,6 +26,7 @@ typedef struct {
   uint32_t max_frames; /* frames its max segment holds; 0 for IFX_EFFECT_SEGMENT */
   int active;          /* the value the active walk uses */
   int mode;            /* 1 for a mode knob: every value gets its own active walk */
+  int param;           /* the MCU parameter index the firmware edits */
 } ifx_effect_knob;
 
 typedef struct {
@@ -57,8 +57,7 @@ typedef struct {
 #define IFX_EFFECT_POISON 0xA5
 #define IFX_EFFECT_EXTRA_MAX 32u
 
-#define IFX_EFFECT_DEFINE(fixture, module, knob_table, raw, words, word_count, extra_table,        \
-                          extra_count)                                                             \
+#define IFX_EFFECT_DEFINE(fixture, module, knob_table, raw, extra_table, extra_count)              \
   _Static_assert((extra_count) <= IFX_EFFECT_EXTRA_MAX, "too many extra turns");                   \
   typedef struct {                                                                                 \
     ifx_context context;                                                                           \
@@ -78,11 +77,11 @@ typedef struct {
     ifx_context context;                                                                           \
     ifx_##module##_config config;                                                                  \
     memset(&config, IFX_EFFECT_POISON, sizeof config);                                             \
-    if (ifx_context_init(&context, IFX_EFFECT_RATE) != 0 ||                                        \
+    if (ifx_context_init(&context, IFX_DEVICE_RATE) != 0 ||                                        \
         fixture##_config(values, &context, &config) != 0) {                                        \
       return -1;                                                                                   \
     }                                                                                              \
-    words(&config, setup_words);                                                                   \
+    memcpy(setup_words, config.coef, sizeof config.coef);                                          \
     return 0;                                                                                      \
   }                                                                                                \
                                                                                                    \
@@ -96,7 +95,7 @@ typedef struct {
     ifx_##module##_setup_raw raw_values;                                                           \
     ifx_##module##_config config;                                                                  \
     raw(values, &raw_values);                                                                      \
-    if (ifx_context_init(&context, IFX_EFFECT_RATE) != 0) {                                        \
+    if (ifx_context_init(&context, IFX_DEVICE_RATE) != 0) {                                        \
       return -1;                                                                                   \
     }                                                                                              \
     return ifx_##module##_setup_config(NULL, &raw_values, &config) == -1 &&                        \
@@ -114,7 +113,7 @@ typedef struct {
     }                                                                                              \
     memset(self, IFX_EFFECT_POISON, sizeof *self);                                                 \
     memcpy(self->values, values, sizeof self->values);                                             \
-    if (ifx_context_init(&self->context, IFX_EFFECT_RATE) != 0 ||                                  \
+    if (ifx_context_init(&self->context, IFX_DEVICE_RATE) != 0 ||                                  \
         fixture##_config(self->values, &self->context, &self->config) != 0) {                      \
       free(self);                                                                                  \
       return NULL;                                                                                 \
@@ -168,7 +167,7 @@ typedef struct {
       .knob = (knob_table),                                                                        \
       .extra = (extra_table),                                                                      \
       .extras = (extra_count),                                                                     \
-      .setup_words = (word_count),                                                                 \
+      .setup_words = (uint32_t)(sizeof(((ifx_##module##_config *)0)->coef) / sizeof(int32_t)),     \
       .setup = fixture##_setup,                                                                    \
       .rejects = fixture##_rejects,                                                                \
       .open = fixture##_open,                                                                      \

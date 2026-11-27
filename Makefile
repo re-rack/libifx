@@ -99,11 +99,11 @@ LIB_HEADERS := $(wildcard src/*.h)
 TEST_EFFECT_OBJECTS := $(patsubst %.c,$(BUILD)/%.o,$(wildcard tests/effect_*.c))
 CHECK_OBJECTS := $(BUILD)/tests/ifx_check.o $(BUILD)/tests/ifx_fixture.o $(BUILD)/tests/ifx_signal.o \
                  $(TEST_EFFECT_OBJECTS)
-RECORD_OBJECTS := $(BUILD)/tests/ifx_record.o $(BUILD)/tests/ifx_fixture.o $(BUILD)/tests/ifx_signal.o \
+RECORD_OBJECTS := $(BUILD)/tests/ifx_record.o $(BUILD)/tests/ifx_firmware.o \
+                  $(BUILD)/tests/ifx_fixture.o $(BUILD)/tests/ifx_signal.o \
                   $(TEST_EFFECT_OBJECTS) $(patsubst %.c,$(BUILD)/%.o,$(wildcard tests/firmware_*.c))
 OBJECTS := $(sort $(LIB_OBJECTS) $(CHECK_OBJECTS) $(RECORD_OBJECTS) \
-             $(BUILD)/tests/ifx_bench.o \
-             $(patsubst %.c,$(BUILD)/%.o,$(wildcard tests/test_convert.c)))
+             $(BUILD)/tests/ifx_bench.o)
 DEPS := $(OBJECTS:.o=.d) $(HARNESS_OBJECTS:.o=.d) \
         $(patsubst $(HARNESS)/%.c,$(BUILD_HARNESS)/%.d,$(TOOL_SOURCES))
 
@@ -113,7 +113,6 @@ $(LIB_OBJECTS): LIB_FLAGS := -fPIC -fvisibility=hidden
 
 C_FILES := $(wildcard src/*.c) $(wildcard tests/*.c) $(wildcard $(HARNESS)/*.c)
 FORMAT_FILES := $(C_FILES) $(wildcard src/*.h) $(wildcard tests/*.h) $(wildcard $(HARNESS)/*.h)
-ANALYSIS_FILES := $(C_FILES)
 
 # The converter picks its path when it is compiled, so every path gets its own test binary.
 CONVERT_VARIANTS := scalar
